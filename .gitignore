@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 环境变量与密钥
+.env
+.env.*
+*.key
+*.pem
+secrets/
+credentials/
+
+# 本地数据库
+*.db
+*.sqlite
+*.sqlite3
+
+# 原始资料、测试数据与解析中间产物
+data/
+raw/
+inputs/
+outputs/
+parsed/
+intermediate/
+cache/
+tmp/
+temp/
+*TestData.zip
+*.zip
+
+# 工业资料默认不入库（涉密风险）
+*.pdf
+
+# 日志
+*.log
+
+# 编辑器与系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
