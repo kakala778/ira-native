@@ -1,0 +1,4 @@
+﻿item_id,equipment_class,manufacturer_model,configuration_variant,scope,quantity,unit,count_basis,config
+L-01,OLT,SYN-OLT-A,GPON-8,虚构区域A,3,台,per_scope,8 x GPON ports
+L-02,ONU,SYN-ONU-A,FE-8,虚构区域A,5,台,per_scope,8 x FE ports
+L-03,ONU,SYN-ONU-B,FE-4,虚构区域B,3,台,per_scope,4 x FE ports

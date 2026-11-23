@@ -1,0 +1,4 @@
+﻿req_id,equipment_class,manufacturer_model,configuration_variant,scope,quantity,unit,count_basis,strength,quantity_role,config
+F-01,OLT,SYN-OLT-A,GPON-8,虚构区域A,4,台,per_scope,mandatory,exact,8 x GPON ports
+F-02,ONU,SYN-ONU-A,FE-8,虚构区域A,6,台,per_scope,reference,estimate,8 x FE ports
+F-03,ONU,SYN-ONU-B,FE-4,虚构区域B,3,台,per_scope,mandatory,exact,4 x FE ports
