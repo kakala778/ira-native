@@ -247,6 +247,7 @@ class EvidenceService:
                                     page_index=index,
                                     physical_page=index + 1,
                                     raw_content=block.content,
+                                    native_context=block.native_context,
                                     kind=block.kind,
                                     native_bbox=block.bbox,
                                     coord_system=block.coord_system,

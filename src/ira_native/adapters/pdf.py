@@ -15,7 +15,18 @@ from ira_native.domain.models import BBox, PdfPageLocation
 from ira_native.errors import IraError
 
 _PDFIUM_LOCK = Lock()
-_TEXT_BLOCK_KINDS = {"text", "title", "caption", "header", "footer", "page_number", "footnote"}
+_TEXT_BLOCK_KINDS = {
+    "text",
+    "title",
+    "doc_title",
+    "paragraph_title",
+    "ref_text",
+    "caption",
+    "header",
+    "footer",
+    "page_number",
+    "footnote",
+}
 
 
 @contextmanager

@@ -11,11 +11,15 @@ from pydantic import JsonValue
 
 from ira_native.errors import IraError
 
-ADAPTER_VERSION = "mineru-structured-content/1"
+ADAPTER_VERSION = "mineru-structured-content/2"
 NORMALIZED_PAGE = "normalized_page"
+_CONTEXT_FIELDS = ("level", "sub_type", "captions", "footnotes", "image_source")
 _KNOWN_KINDS = {
     "text",
     "title",
+    "doc_title",
+    "paragraph_title",
+    "ref_text",
     "list",
     "table",
     "image",
@@ -68,6 +72,7 @@ class NativeBlock:
     bbox: JsonValue
     coord_system: str | None
     continues_prev: bool | None
+    native_context: dict[str, JsonValue]
     risk: tuple[str, ...]
 
 
@@ -102,7 +107,8 @@ def _block(raw: JsonValue, pointer: str) -> NativeBlock:
         risks.append("continuation_unverified")
     if not raw["content"]:
         risks.append("empty_content")
-    return NativeBlock(pointer, kind, raw["content"], bbox, coord, continues, tuple(risks))
+    context = {key: raw[key] for key in _CONTEXT_FIELDS if key in raw}
+    return NativeBlock(pointer, kind, raw["content"], bbox, coord, continues, context, tuple(risks))
 
 
 def read_artifact(data: bytes, max_pages: int, max_blocks: int) -> ParsedArtifact:
@@ -205,4 +211,10 @@ def search_text(block: NativeBlock) -> str:
             parts.extend(html.parts)
         else:
             parts.append(text)
+    for key in ("captions", "footnotes"):
+        annotations = block.native_context.get(key)
+        if isinstance(annotations, list):
+            for annotation in annotations:
+                if isinstance(annotation, dict) and isinstance(annotation.get("content"), str):
+                    parts.append(annotation["content"])
     return " ".join(" ".join(parts).replace("\x00", " ").casefold().split())

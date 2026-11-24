@@ -95,6 +95,7 @@ class Evidence(Record):
     page_index: int
     physical_page: int
     raw_content: JsonValue
+    native_context: dict[str, JsonValue] = Field(default_factory=dict)
     kind: str
     native_bbox: JsonValue = None
     coord_system: str | None = None

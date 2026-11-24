@@ -40,6 +40,12 @@
       {{ fact('内容核对', item.content_check) }}
     </dl>
     <pre>{{ item.raw_content if item.raw_content is string else item.raw_content | tojson(indent=2) }}</pre>
+    {% if item.native_context %}
+    <details class="raw-details">
+      <summary>原生附带字段</summary>
+      <pre>{{ item.native_context | tojson(indent=2) }}</pre>
+    </details>
+    {% endif %}
     {% if item.risk %}<p class="muted">{{ item.risk | join(' · ') }}</p>{% endif %}
   </details>
 {% endif %}
