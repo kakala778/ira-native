@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% from 'components.html' import csrf_field %}
+{% block title %}资料与核验{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><h1>资料与核验</h1><p>登记技术规格和设备清单，核对证据后生成辅助核验结果。</p></div>
+</div>
+{% if not uploads %}
+<p class="notice" role="status">网页上传当前关闭。可填入已登记的解析运行和清单导入 ID。</p>
+{% endif %}
+{% if uploads %}
+<div class="columns">
+  <section class="panel" aria-labelledby="pdf-heading">
+    <h2 id="pdf-heading">技术规格</h2>
+    <p class="muted">上传一份原始 PDF 与对应的 MinerU 4.2 形态 JSON。</p>
+    <form action="/workbench/inputs/pdf" method="post" enctype="multipart/form-data">
+      {{ csrf_field(csrf) }}
+      <input type="hidden" name="import_id" value="{{ import_id }}">
+      <label>原始 PDF <input type="file" name="pdf" accept=".pdf,application/pdf" required></label>
+      <label>解析产物 JSON <input type="file" name="parsed" accept=".json,application/json" required></label>
+      <p class="help">提交表示你声明两份文件属于同一次解析。</p>
+      <button type="submit">登记技术规格</button>
+    </form>
+  </section>
+  <section class="panel" aria-labelledby="sheet-heading">
+    <h2 id="sheet-heading">设备清单</h2>
+    <form action="/workbench/inputs/spreadsheet" method="post" enctype="multipart/form-data">
+      {{ csrf_field(csrf) }}
+      <input type="hidden" name="parse_run_id" value="{{ parse_run_id }}">
+      <label>CSV 或 XLSX <input type="file" name="spreadsheet" accept=".csv,.xlsx" required></label>
+      <div class="form-row">
+        <label>工作表（多工作表时填写） <input name="sheet" maxlength="31" placeholder="工作表名称"></label>
+        <label>CSV 编码
+          <select name="encoding"><option value="utf-8-sig">UTF-8（含 BOM）</option><option value="utf-8">UTF-8</option><option value="gb18030">GB18030</option></select>
+        </label>
+      </div>
+      <details>
+        <summary>指定表头映射</summary>
+        <p class="help">清单使用标准字段名时可留空。手动映射时请按清单填写实际表头。</p>
+        <div class="form-row">
+          {% for key, label in columns %}<label>{{ label }} <input name="column_{{ key }}" maxlength="256" placeholder="{{ key }}"></label>{% endfor %}
+        </div>
+      </details>
+      <button type="submit">登记设备清单</button>
+    </form>
+  </section>
+</div>
+{% endif %}
+<section class="panel workflow-panel">
+  <h2>建立核验草案</h2>
+  <form action="/workbench/drafts" method="post">
+    {{ csrf_field(csrf) }}
+    <div class="form-row">
+      <label>解析运行 ID <input name="parse_run_id" class="identifier" value="{{ parse_run_id }}" pattern="[0-9a-f]{64}" spellcheck="false" required></label>
+      <label>清单导入 ID <input name="import_id" class="identifier" value="{{ import_id }}" pattern="[0-9a-f]{64}" spellcheck="false" required></label>
+    </div>
+    <button type="submit">查看候选项</button>
+  </form>
+</section>
+<section class="panel workflow-panel">
+  <h2>打开已有核验</h2>
+  <form class="inline-form" action="/workbench/review" method="get">
+    <label>核验运行 ID <input name="run_id" class="identifier" pattern="[0-9a-f]{32}" spellcheck="false" required></label>
+    <button type="submit" class="secondary">打开审查</button>
+  </form>
+</section>
+{% endblock %}

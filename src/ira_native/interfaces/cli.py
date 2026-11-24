@@ -1,5 +1,6 @@
 """Typer entry point for local evidence workflows."""
 
+import asyncio
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -11,6 +12,7 @@ import uvicorn
 from pydantic import BaseModel
 
 from ira_native.application.service import EvidenceService
+from ira_native.application.workflow import VerificationWorkflow
 from ira_native.errors import IraError
 from ira_native.settings import Settings
 
@@ -21,6 +23,8 @@ ingest = typer.Typer(no_args_is_help=True, help="Register local source files.")
 evidence = typer.Typer(no_args_is_help=True, help="Read evidence and locate the original page.")
 app.add_typer(ingest, name="ingest")
 app.add_typer(evidence, name="evidence")
+verification = typer.Typer(no_args_is_help=True, help="Prepare and verify GPON declarations.")
+app.add_typer(verification, name="verify")
 
 
 @contextmanager
@@ -107,6 +111,86 @@ def serve(port: Annotated[int, typer.Option(min=1, max=65535)] = 8000) -> None:
         access_log=False,
         proxy_headers=False,
     )
+
+
+@verification.command("prepare")
+def prepare_verification(
+    parse_run_id: str,
+    spreadsheet: Path,
+    sheet: str | None = None,
+    encoding: str = "utf-8-sig",
+    mapping_json: str = "{}",
+) -> None:
+    """Import a mapped local declaration file and show reviewable evidence candidates."""
+    with _service() as service:
+        try:
+            mapping = json.loads(mapping_json)
+        except ValueError:
+            raise IraError("invalid_input") from None
+        if not isinstance(mapping, dict) or any(not isinstance(v, str) for v in mapping.values()):
+            raise IraError("invalid_input")
+        workflow = VerificationWorkflow(service)
+        declaration = workflow.ingest_spreadsheet_path(spreadsheet, mapping, sheet, encoding)
+        _emit(workflow.prepare(parse_run_id, declaration["import_id"]))
+
+
+@verification.command("run")
+def run_verification(
+    draft_id: str, reviewer: Annotated[str, typer.Option()], confirmations: Path | None = None
+) -> None:
+    """Run against explicit checked pairing records, or keep the inputs as candidates."""
+    with _service() as service:
+        selected = []
+        if confirmations is not None:
+            _, data = service.files.read(confirmations, service.settings.max_json_bytes)
+            try:
+                selected = json.loads(data)
+            except ValueError:
+                raise IraError("invalid_input") from None
+            if not isinstance(selected, list):
+                raise IraError("invalid_input")
+        _emit(VerificationWorkflow(service).verify(draft_id, selected, reviewer))
+
+
+@verification.command("show")
+def show_verification(run_id: str, csv: bool = False) -> None:
+    """Read JSON results or export formula-safe CSV."""
+    with _service() as service:
+        workflow = VerificationWorkflow(service)
+        if csv:
+            typer.echo(workflow.export_csv(run_id), nl=False)
+        else:
+            _emit(workflow.get_run(run_id))
+
+
+@verification.command("compare")
+def compare_requirements(
+    left_evidence_id: str,
+    right_evidence_id: str,
+    fields_checked: bool = False,
+    same_version: bool = False,
+    left_row: int | None = None,
+    right_row: int | None = None,
+) -> None:
+    """Compare two independently located requirements."""
+    with _service() as service:
+        _emit(
+            VerificationWorkflow(service).compare(
+                left_evidence_id,
+                right_evidence_id,
+                fields_checked=fields_checked,
+                same_version=same_version,
+                left_row=left_row,
+                right_row=right_row,
+            )
+        )
+
+
+@verification.command("investigate")
+def investigate_verification(run_id: str) -> None:
+    """Investigate a deterministic evidence gap using the configured local model."""
+    with _service() as service:
+        _emit(asyncio.run(VerificationWorkflow(service).investigate(run_id)))
 
 
 def main() -> None:

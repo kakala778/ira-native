@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}证据检索{% endblock %}
+{% block content %}
+<div class="page-heading"><div><h1>证据检索</h1><p>按字面检索已登记的解析证据。</p></div></div>
+<section class="panel">
+  <form action="/workbench/search" method="get">
+    <div class="form-row search-row">
+      <label>检索词 <input type="search" name="q" value="{{ q }}" maxlength="256" placeholder="例如 GPON" required></label>
+      <label>PDF 资产 ID（可选） <input name="asset_id" value="{{ asset_id }}" class="identifier" pattern="[0-9a-f]{64}" spellcheck="false"></label>
+      <label>物理页（可选） <input type="number" name="physical_page" value="{{ physical_page or '' }}" min="1"></label>
+    </div>
+    <button type="submit">检索</button>
+  </form>
+  {% if result is not none %}
+  <div class="section-line results-heading"><h2>检索结果</h2><span class="muted">{{ result.items | length }} 条</span></div>
+  <ul class="search-results">
+    {% for item in result.items %}
+    <li>
+      <a href="/workbench/evidence/{{ item.evidence_id }}"><strong>物理第 {{ item.physical_page }} 页</strong> · {{ '块级定位' if item.precision == 'block' else '页级定位' }}</a>
+      <p class="truncate">{{ item.raw_content if item.raw_content is string else item.raw_content | tojson }}</p>
+    </li>
+    {% else %}<li class="muted">当前范围未检索到证据。</li>{% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endblock %}

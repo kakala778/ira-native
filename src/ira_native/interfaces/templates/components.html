@@ -1,0 +1,82 @@
+{% macro csrf_field(token) %}
+<input type="hidden" name="csrf" value="{{ token }}">
+{% endmacro %}
+
+{% macro fact(label, value) %}
+<div><dt>{{ label }}</dt><dd>{{ value if value is not none and value != '' else '—' }}</dd></div>
+{% endmacro %}
+
+{% macro original(item, location, problem) %}
+{% if problem %}
+  <div class="notice" role="status"><strong>原页无法打开</strong><code>{{ problem.code }}</code><p>{{ problem.detail }}</p></div>
+{% endif %}
+{% if location %}
+  <div class="pdf-viewer"
+       data-pdf="/api/v1/assets/{{ location.asset_id }}/pdf"
+       data-page-image="/api/v1/assets/{{ location.asset_id }}/pages/"
+       data-page="{{ location.physical_page }}"
+       data-bbox="{{ location.pdf_bbox | tojson | forceescape }}"
+       data-precision="{{ location.precision }}">
+    <div class="pdf-toolbar">
+      <button type="button" class="secondary" data-prev disabled aria-label="上一物理页">上一页</button>
+      <span class="page-indicator"><span data-current>{{ location.physical_page }}</span> / <span data-total>{{ location.page_count }}</span></span>
+      <button type="button" class="secondary" data-next disabled aria-label="下一物理页">下一页</button>
+      <a class="utility" href="/api/v1/assets/{{ location.asset_id }}/pdf">下载 PDF</a>
+    </div>
+    <div class="pdf-stage" data-stage aria-label="原始 PDF 预览">
+      <noscript><img class="page-fallback" src="/api/v1/assets/{{ location.asset_id }}/pages/{{ location.physical_page }}/image" alt="PDF 物理第 {{ location.physical_page }} 页"></noscript>
+    </div>
+    <p class="pdf-status" data-pdf-status role="status">物理第 {{ location.physical_page }} 页 · {{ '块级定位' if location.precision == 'block' else '页级定位' }} · 正在载入</p>
+  </div>
+{% endif %}
+{% if item %}
+  <details class="raw-details">
+    <summary>查看原始证据与定位信息</summary>
+    <dl class="facts">
+      {{ fact('物理页', item.physical_page) }}
+      {{ fact('原生指针', item.source_pointer) }}
+      {{ fact('定位精度', item.precision) }}
+      {{ fact('来源状态', item.source_state) }}
+      {{ fact('内容核对', item.content_check) }}
+    </dl>
+    <pre>{{ item.raw_content if item.raw_content is string else item.raw_content | tojson(indent=2) }}</pre>
+    {% if item.risk %}<p class="muted">{{ item.risk | join(' · ') }}</p>{% endif %}
+  </details>
+{% endif %}
+{% endmacro %}
+
+{% macro raw_fields(item, role) %}
+{% if item %}
+<dl class="facts">
+  {{ fact('设备类别', item.equipment_class) }}
+  {{ fact('厂家型号', item.model) }}
+  {{ fact('配置变体', item.config_variant) }}
+  {{ fact('站点组', item.site_group) }}
+  {{ fact('工程范围', item.scope) }}
+  {{ fact('属性', item.property) }}
+  {{ fact('表达式', item.expr) }}
+  {{ fact('单位', item.unit) }}
+  {{ fact('计数口径', item.count_basis) }}
+  {% if role == 'requirement' %}{{ fact('要求效力', item.strength) }}{% endif %}
+  {% if role == 'declaration' %}{{ fact('工作表', item.sheet_or_section or 'CSV') }}{{ fact('原始行', item.row_id) }}{% endif %}
+</dl>
+<details class="raw-details">
+  <summary>逐字段来源与原值</summary>
+  <pre>{{ item.raw | tojson(indent=2) }}</pre>
+  {% if item.field_evidence %}
+  <ul class="field-evidence">
+    {% for field in item.field_evidence %}
+    <li><strong>{{ field.field_name }}</strong>
+      {% if field.column %} · {{ field.column }}{% endif %}
+      {% if field.cell %} · {{ field.cell }}{% endif %}
+      {% if field.source_pointer %} · <code>{{ field.source_pointer }}</code>{% endif %}
+      {% if field.support_state %} · {{ field.support_state }}{% endif %}
+      {% if field.raw_span %}<div>{{ field.raw_span }}</div>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</details>
+{% if item.risk %}<p class="muted">{{ item.risk | join(' · ') }}</p>{% endif %}
+{% endif %}
+{% endmacro %}

@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% from 'components.html' import original %}
+{% block title %}原始证据{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><h1>原始证据</h1>{% if item %}<p>PDF 物理第 {{ item.physical_page }} 页</p>{% endif %}</div>
+  <a class="button secondary" href="/workbench/search">证据检索</a>
+</div>
+<section class="panel evidence-view">{{ original(item, location, problem) }}</section>
+{% endblock %}
+{% block scripts %}<script type="module" src="/workbench/static/pdf-viewer.mjs"></script>{% endblock %}

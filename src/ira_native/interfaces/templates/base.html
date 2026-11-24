@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>{% block title %}证据核验{% endblock %} · IRA Native</title>
+  <link rel="stylesheet" href="/workbench/static/workbench.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="wordmark" href="/">IRA Native</a>
+      <nav aria-label="主导航">
+        <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %}>资料与核验</a>
+        <a href="/workbench/search" {% if request.url.path == '/workbench/search' %}aria-current="page"{% endif %}>证据检索</a>
+      </nav>
+    </div>
+  </header>
+  <main class="container" id="main">
+    {% block content %}{% endblock %}
+  </main>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

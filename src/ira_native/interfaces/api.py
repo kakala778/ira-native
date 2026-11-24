@@ -15,6 +15,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ira_native.application.service import EvidenceService
+from ira_native.application.workflow import VerificationWorkflow
 from ira_native.domain.models import (
     AssetDetail,
     AssetView,
@@ -57,7 +58,12 @@ class LocalHttp:
 
         async def secured_send(message: Message) -> None:
             if message["type"] == "http.response.start":
-                message["headers"] = [*message.get("headers", []), *_RESPONSE_HEADERS]
+                headers = message.get("headers", [])
+                existing = {name.lower() for name, _ in headers}
+                message["headers"] = [
+                    *headers,
+                    *(header for header in _RESPONSE_HEADERS if header[0] not in existing),
+                ]
             await send(message)
 
         request = Request(scope)
@@ -117,6 +123,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         with EvidenceService(settings if settings is not None else Settings.from_env()) as service:
             application.state.evidence_service = service
+            application.state.workflow = VerificationWorkflow(service)
             yield
 
     app = FastAPI(
@@ -222,4 +229,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             declared=values.declared,
         )
 
+    from ira_native.interfaces.web import router
+
+    app.include_router(router)
     return app

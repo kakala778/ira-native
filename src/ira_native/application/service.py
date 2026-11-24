@@ -151,6 +151,21 @@ class EvidenceService:
         _LOGGER.info("event=parse_run_registered")
         return result
 
+    def ingest_uploaded_pair(self, pdf_data: bytes, json_data: bytes) -> IngestResult:
+        """Register both uploaded byte assets and their declared parse run atomically."""
+        if not self.settings.enable_uploads:
+            raise IraError("permission_denied")
+        source = self._prepare_source(pdf_data, SourceKind.PDF, _MANAGED)
+        artifact = self._prepare_source(json_data, SourceKind.PARSED_JSON, _MANAGED)
+        return self._ingest_run(
+            source.asset,
+            artifact.asset,
+            pdf_data,
+            json_data,
+            declared=True,
+            new_assets=(source, artifact),
+        )
+
     def ingest_parse_run(
         self, source_asset_id: str, artifact_asset_id: str, *, declared: bool = True
     ) -> IngestResult:
@@ -322,6 +337,10 @@ class EvidenceService:
         self._get_asset(item.source_asset_id)
         self._get_asset(item.artifact_asset_id)
         return item
+
+    def list_run_evidence(self, parse_run_id: str) -> list[Evidence]:
+        self.get_run(parse_run_id)
+        return self.repository.list_run_evidence(parse_run_id)
 
     def _search_backend(self, query: str, mode: Literal["literal", "exact"]) -> Backend:
         if mode == "exact":

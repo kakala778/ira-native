@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% from 'components.html' import fact %}
+{% block title %}证据补查{% endblock %}
+{% block content %}
+<div class="page-heading"><div><h1>证据补查</h1><p>当前记录的补查状态</p></div>
+<a class="button secondary" href="/workbench/runs/{{ run_id }}">返回审查</a></div>
+<section class="panel">
+  {% set labels = {'no_gap': '当前没有待补查的缺口', 'model_disabled': '模型未启用', 'not_configured': '模型未配置', 'proposals_available': '找到候选证据'} %}
+  <p role="status">{{ labels.get(report.status, report.status) }}</p>
+  {% if report.evidence_ids %}
+  <h2>候选证据</h2>
+  <ul class="search-results">
+    {% for evidence_id in report.evidence_ids %}
+    <li><a href="/workbench/evidence/{{ evidence_id }}">打开证据 <code>{{ evidence_id }}</code></a></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if report.reverification %}
+  <h2>确定性重算</h2>
+  <dl class="facts">
+    {{ fact('触发方式', '补查工具请求' if report.reverification.trigger == 'agent_tool' else '应用自动重算') }}
+    {{ fact('处置', report.reverification.disposition) }}
+    {{ fact('规则结果', report.reverification.requirement_evaluation) }}
+  </dl>
+  {% endif %}
+  {% if report.events %}
+  <details class="raw-details"><summary>查看补查事件</summary><pre>{{ report.events | tojson(indent=2) }}</pre></details>
+  {% endif %}
+</section>
+{% endblock %}

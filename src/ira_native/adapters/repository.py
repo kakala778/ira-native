@@ -237,6 +237,16 @@ class Registry:
             raise IraError("no_evidence_found")
         return Evidence.model_validate(record)
 
+    def list_run_evidence(self, parse_run_id: str) -> list[Evidence]:
+        query = select(evidence.c.record).where(evidence.c.parse_run_id == parse_run_id)
+        with self._transaction() as conn:
+            return [
+                Evidence.model_validate(value)
+                for value in conn.execute(
+                    query.order_by(evidence.c.page_index, evidence.c.row_id)
+                ).scalars()
+            ]
+
     def search(
         self,
         query: str,

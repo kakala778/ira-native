@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+{% block title %}操作未完成{% endblock %}
+{% block content %}
+<div class="page-heading"><div><h1>操作未完成</h1><p>{{ error.detail }}</p></div></div>
+<p role="alert"><code>{{ error.code }}</code></p>
+<a href="/" class="button secondary">返回资料与核验</a>
+{% endblock %}

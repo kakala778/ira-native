@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% from 'components.html' import csrf_field, raw_fields %}
+{% block title %}核验草案{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><h1>核验草案</h1><p>{{ draft.requirements | length }} 个要求候选 · {{ draft.declarations | length }} 条清单记录</p></div>
+  <a class="button secondary" href="/?parse_run_id={{ draft.parse_run_id }}&amp;import_id={{ draft.declaration_import_id }}">返回资料</a>
+</div>
+<form action="/workbench/drafts/{{ draft.draft_id }}/verify" method="post" class="draft-layout">
+  {{ csrf_field(csrf) }}
+  <div class="panel">
+    <h2>要求候选</h2>
+    {% if not draft.requirements %}<p class="muted">没有识别到可供核对的要求候选。</p>{% endif %}
+    {% for item in draft.requirements %}
+    <section class="candidate" aria-labelledby="candidate-{{ loop.index }}">
+      <div class="section-line">
+        <h3 id="candidate-{{ loop.index }}">{{ item.equipment_class or '未知设备' }} · {{ item.config_variant or '未知配置' }}</h3>
+        <a href="/workbench/evidence/{{ item.evidence_id }}" target="_blank" rel="noopener noreferrer">打开原页</a>
+      </div>
+      {{ raw_fields(item, 'requirement') }}
+      {% set matched = matches.get(item.candidate_id, []) %}
+      {% if matched %}
+      <label>对应清单行
+        <select name="declaration_{{ item.candidate_id }}">
+          <option value="">选择已核对的行</option>
+          {% for row in matched %}
+            <option value="{{ row.item_id }}">{{ row.sheet_or_section or 'CSV' }} 第 {{ row.row_id }} 行 · {{ row.expr or '空值' }} {{ row.unit or '' }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" name="confirmed_id" value="{{ item.candidate_id }}"> 确认两条记录对应</label>
+      <label class="check"><input type="checkbox" name="fields_checked_{{ item.candidate_id }}"> 已核对双方字段与计数口径</label>
+      <label class="check"><input type="checkbox" name="same_version_{{ item.candidate_id }}"> 已确认适用版本相同</label>
+      {% else %}
+      <p class="muted">未找到符合类别、配置和范围条件的清单候选。</p>
+      {% endif %}
+    </section>
+    {% endfor %}
+  </div>
+  <aside>
+    <section class="panel">
+      <h2>清单原始行</h2>
+      {% if not draft.declarations %}<p class="muted">清单没有可供核对的记录。</p>{% endif %}
+      {% for row in draft.declarations %}
+      <details class="candidate">
+        <summary>{{ row.sheet_or_section or 'CSV' }} 第 {{ row.row_id }} 行 · {{ row.equipment_class or '未知设备' }} {{ row.config_variant or '' }}</summary>
+        {{ raw_fields(row, 'declaration') }}
+      </details>
+      {% endfor %}
+    </section>
+    <section class="panel workflow-panel">
+      <h2>生成核验结果</h2>
+      <p class="help">未勾选确认的要求会保留待核对状态。</p>
+      <label>审查人 <input name="reviewer" maxlength="80" required></label>
+      <button type="submit">运行核验</button>
+    </section>
+  </aside>
+</form>
+{% endblock %}
