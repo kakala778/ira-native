@@ -1,5 +1,7 @@
 # 完全合成的核验逻辑种子（v0.2）
 
+`generate_evidence_pair.py` 供 TASK-001 生成一份三页合成 PDF 和手写的 MinerU 4.2 形态 JSON。第二页为空页，第一和第三页含独立表格片段及印刷页码文本。执行命令见项目 README。本生成器未运行 MinerU，测试范围为证据导入、定位、检索和接口，和下列 26 条 `logic_only` 种子分别统计。
+
 **重要：本目录不是已验证的铁路参数数据集，也不是 PDF 解析准确率测试。** 所有 `SYN-*`、虚构场景、数值、配置和虚构型号均为人工设计；与真实 TX-03 的数量、站点、型号、表格内容无映射关系。不得用这里的通过率宣称工业场景可靠。
 
 - `cases.jsonl`：26 条 `test_scope=logic_only` 案例；每条由 `requirement`、`declaration`（可能为空或充当另一要求）、`preconditions`、`expected`、`gold_status` 构成。结果域严格区分 `requirement_evaluation` 与 `constraint_relation`；`gold_status=draft_for_human_review` 表示还没有完成专业金标审核。

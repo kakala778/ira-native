@@ -73,6 +73,8 @@ src/ira_native/
 - 当 block 是整张表格，且不存在可靠 cell bbox 时只能返回 **页级/块级**；`continues_prev=true` 是结构续表线索，不保证上一页的表头、公司范围或脚注已经关联正确。
 - `GE(0)` 与 `GE(O)` 的0/O视觉混淆是适配/字段风险示例；应提供 `raw_content` 和 `needs_review`，不得简单用正则全局替换。按字段最小核对样例决定归一化规则。
 
+TASK-001 的 PDFium 适配器使用原 PDF 的有效 PageBox，并将已知左上归一坐标转换为 PDF 原生左下坐标。仅在零旋转、无裁切、零页原点的页面上，经唯一文字匹配、区域提取、字符框与文字填充检查后返回块框。旋转、裁切或不可核查的块继续提供物理页与风险。PDFium 的调用在进程内串行执行。区块文字检查支持位置回查，字段忠实度与适用性仍由各自的质量门处理。
+
 ### 3.3 Excel、CSV 与公式安全
 
 - 输入 CSV 支持编码检测或显式编码选择（UTF-8/GB18030）；保留原始字节与行号，避免把站点字段的顿号列表当成多个条目。
@@ -125,6 +127,8 @@ Fixed verify → repairable EvidenceGap → PolicyGate → PydanticAI choose too
 - PDF.js 在本地显示已授权登记 PDF；可以跳页。块高亮必须共享精确页面变换并通过真实样本校验；不可靠时只跳页，提示精度。静态资源使用固定可审查的版本，保留第三方许可说明。
 - 安全：本地监听 `127.0.0.1`，用户不能通过路径参数读任意本地文件；拒绝 HTTP 路径穿越与 XSS，防 CSV 导出公式注入。
 
+TASK-001 的 API 提供原始 PDF 下载、物理页几何数据及 PNG。路径导入由 CLI 按白名单读取，PDF 按登记 SHA 复核，原始解析 JSON 字节保存在本机 SQLite。HTTP 写入需显式启用，使用限长原字节和登记 ID。PDF.js 的视口变换属于 Web 阶段。
+
 ## 8. 技术依赖与版本/许可关口
 
 | 组件 | 决定 | 需要 Codex 在集成时核查 |
@@ -145,7 +149,7 @@ Fixed verify → repairable EvidenceGap → PolicyGate → PydanticAI choose too
 
 ## 9. 研发和发布质量门
 
-- **TASK-001** 证据基础/解析适配/真实页回查/CLI/API。尚未创建实际解析代码，不得在任务开始时写出“测试通过”。
+- **TASK-001** 证据基础/解析适配/原 PDF 物理页回查/CLI/API。实现进度与复现命令见 README。
 - **TASK-002** GPON 需求/配置/范围与清单导入，字段级候选来源、人工列映射。
 - **TASK-003** 两类比较引擎 + 计数口径/版本/强制参考规则 + Finding。
 - **TASK-004** PydanticAI EGA + 轻量 Web/PDF.js + 人审与审计事件。
