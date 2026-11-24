@@ -6,7 +6,18 @@
 <div><dt>{{ label }}</dt><dd>{{ value if value is not none and value != '' else '—' }}</dd></div>
 {% endmacro %}
 
+{% macro search_match(item) %}
+{% if item.match_source %}
+  {% set labels = {'body': '正文', 'caption': '题注', 'footnote': '脚注'} %}
+  <p class="muted">命中来源 · {% for source in item.match_source %}{{ labels[source] }}{% if not loop.last %}、{% endif %}{% endfor %}</p>
+  {% if 'caption' in item.match_source or 'footnote' in item.match_source %}
+  <p class="muted">附带字段的归属待核对。{% if item.precision == 'block' %}块框对应正文。{% endif %}</p>
+  {% endif %}
+{% endif %}
+{% endmacro %}
+
 {% macro original(item, location, problem) %}
+{% if item %}{{ search_match(item) }}{% endif %}
 {% if problem %}
   <div class="notice" role="status"><strong>原页无法打开</strong><code>{{ problem.code }}</code><p>{{ problem.detail }}</p></div>
 {% endif %}
@@ -16,7 +27,9 @@
        data-page-image="/api/v1/assets/{{ location.asset_id }}/pages/"
        data-page="{{ location.physical_page }}"
        data-bbox="{{ location.pdf_bbox | tojson | forceescape }}"
-       data-precision="{{ location.precision }}">
+       data-evidence-precision="{{ location.precision }}"
+       data-precision="none"
+       data-render-state="loading">
     <div class="pdf-toolbar">
       <button type="button" class="secondary" data-prev disabled aria-label="上一物理页">上一页</button>
       <span class="page-indicator"><span data-current>{{ location.physical_page }}</span> / <span data-total>{{ location.page_count }}</span></span>
@@ -24,9 +37,9 @@
       <a class="utility" href="/api/v1/assets/{{ location.asset_id }}/pdf">下载 PDF</a>
     </div>
     <div class="pdf-stage" data-stage aria-label="原始 PDF 预览">
-      <noscript><img class="page-fallback" src="/api/v1/assets/{{ location.asset_id }}/pages/{{ location.physical_page }}/image" alt="PDF 物理第 {{ location.physical_page }} 页"></noscript>
+      <noscript><img class="page-fallback" src="/api/v1/assets/{{ location.asset_id }}/pages/{{ location.physical_page }}/image" alt="PDF 物理第 {{ location.physical_page }} 页"><p>整页 PNG 预览，未显示块级高亮。</p></noscript>
     </div>
-    <p class="pdf-status" data-pdf-status role="status">物理第 {{ location.physical_page }} 页 · {{ '块级定位' if location.precision == 'block' else '页级定位' }} · 正在载入</p>
+    <p class="pdf-status" data-pdf-status role="status">正在载入 PDF 物理第 {{ location.physical_page }} 页</p>
   </div>
 {% endif %}
 {% if item %}
@@ -35,7 +48,7 @@
     <dl class="facts">
       {{ fact('物理页', item.physical_page) }}
       {{ fact('原生指针', item.source_pointer) }}
-      {{ fact('定位精度', item.precision) }}
+      {{ fact('定位精度', '块级定位' if item.precision == 'block' else '页级定位') }}
       {{ fact('来源状态', item.source_state) }}
       {{ fact('内容核对', item.content_check) }}
     </dl>

@@ -3,6 +3,7 @@
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path
 from typing import Literal
 
@@ -258,6 +259,7 @@ class Registry:
         physical_page: int | None,
         kind: str | None,
         limit: int,
+        project: Callable[[Evidence], Evidence | None],
     ) -> list[Evidence]:
         statement = (
             select(evidence.c.record)
@@ -275,26 +277,28 @@ class Registry:
             statement = statement.where(evidence.c.page_index == physical_page - 1)
         if kind is not None:
             statement = statement.where(evidence.c.kind == kind)
-        if backend == "exact":
-            statement = statement.where(evidence.c.search_text == query)
-        else:
-            statement = statement.where(evidence.c.search_text.contains(query, autoescape=True))
-            if backend == "fts5":
-                phrase = '"' + query.replace('"', '""') + '"'
-                statement = statement.where(
-                    evidence.c.row_id.in_(
-                        select(text("rowid"))
-                        .select_from(text("evidence_fts"))
-                        .where(
-                            text("evidence_fts MATCH :phrase").bindparams(
-                                bindparam("phrase", phrase)
-                            )
-                        )
+        # The stored index joins searchable segments. Validate their boundaries before
+        # limiting results so cross-segment matches never suppress valid later hits.
+        statement = statement.where(evidence.c.search_text.contains(query, autoescape=True))
+        if backend == "fts5":
+            phrase = '"' + query.replace('"', '""') + '"'
+            statement = statement.where(
+                evidence.c.row_id.in_(
+                    select(text("rowid"))
+                    .select_from(text("evidence_fts"))
+                    .where(
+                        text("evidence_fts MATCH :phrase").bindparams(bindparam("phrase", phrase))
                     )
                 )
-        statement = statement.order_by(evidence.c.page_index, evidence.c.row_id).limit(limit)
+            )
+        statement = statement.order_by(evidence.c.page_index, evidence.c.row_id)
         with self._transaction() as conn:
-            return [Evidence.model_validate(row) for row in conn.execute(statement).scalars()]
+            matches = (
+                match
+                for row in conn.execute(statement).scalars()
+                if (match := project(Evidence.model_validate(row))) is not None
+            )
+            return list(islice(matches, limit))
 
     def close(self) -> None:
         self.engine.dispose()

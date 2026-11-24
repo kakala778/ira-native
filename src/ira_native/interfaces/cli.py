@@ -67,7 +67,7 @@ def search(
     page: Annotated[int | None, typer.Option("--page", help="1-based physical PDF page.")] = None,
     kind: Annotated[str | None, typer.Option("--kind")] = None,
     exact: Annotated[
-        bool, typer.Option("--exact", help="Match the complete normalized block.")
+        bool, typer.Option("--exact", help="Match a complete normalized body or annotation.")
     ] = False,
     limit: Annotated[int, typer.Option("--limit")] = 50,
 ) -> None:
@@ -87,17 +87,21 @@ def search(
 
 
 @evidence.command()
-def show(evidence_id: str) -> None:
+def show(evidence_id: str, query: str | None = None, exact: bool = False) -> None:
     """Show the registered evidence and its native reference."""
     with _service() as service:
-        _emit(service.get_evidence(evidence_id))
+        _emit(service.get_evidence(evidence_id, query=query, mode="exact" if exact else "literal"))
 
 
 @evidence.command()
-def page(evidence_id: str) -> None:
+def page(evidence_id: str, query: str | None = None, exact: bool = False) -> None:
     """Check the original PDF and describe the physical page and trusted precision."""
     with _service() as service:
-        _emit(service.get_evidence_page(evidence_id))
+        _emit(
+            service.get_evidence_page(
+                evidence_id, query=query, mode="exact" if exact else "literal"
+            )
+        )
 
 
 @app.command()
@@ -150,6 +154,13 @@ def run_verification(
             if not isinstance(selected, list):
                 raise IraError("invalid_input")
         _emit(VerificationWorkflow(service).verify(draft_id, selected, reviewer))
+
+
+@verification.command("diagnose")
+def diagnose_requirements(parse_run_id: str) -> None:
+    """Print extraction stage counts and reasons without document text."""
+    with _service() as service:
+        _emit(VerificationWorkflow(service).diagnose_requirements(parse_run_id))
 
 
 @verification.command("show")

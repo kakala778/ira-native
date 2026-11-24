@@ -86,6 +86,10 @@ class ParseRun(Record):
     binding_basis: tuple[str, ...]
 
 
+MatchSource = Literal["body", "caption", "footnote"]
+ANNOTATION_RISK = "ANNOTATION_ASSOCIATION_UNVERIFIED"
+
+
 class Evidence(Record):
     evidence_id: str
     parse_run_id: str
@@ -105,9 +109,18 @@ class Evidence(Record):
     location_basis: Literal["physical_page", "unique_pdf_text_region"]
     risk: tuple[str, ...]
     source_state: SourceState = SourceState.UNVERIFIED
+    match_source: tuple[MatchSource, ...] = ()
     extraction_state: Literal["candidate"] = "candidate"
     content_check: Literal["not_reviewed"] = "not_reviewed"
     access_policy: AccessPolicy
+
+    @property
+    def annotations(self) -> dict[str, JsonValue]:
+        return {
+            key: self.native_context[key]
+            for key in ("captions", "footnotes")
+            if self.native_context.get(key)
+        }
 
 
 class IngestResult(Record):
@@ -135,4 +148,6 @@ class PdfPageLocation(Record):
     precision: Literal["page", "block"] = "page"
     pdf_bbox: BBox | None = None
     evidence_id: str | None = None
+    match_source: tuple[MatchSource, ...] = ()
+    annotation_fields: tuple[str, ...] = ()
     risk: tuple[str, ...] = ()

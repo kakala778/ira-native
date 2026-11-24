@@ -12,8 +12,13 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from ira_native.adapters.spreadsheet import read_sheet
 from ira_native.adapters.workflow_store import WorkflowStore
-from ira_native.application.candidates import extract_requirements, normalize
+from ira_native.application.candidates import (
+    attach_annotation_context,
+    extract_requirements,
+    normalize,
+)
 from ira_native.application.service import EvidenceService, _identity, _sha
+from ira_native.domain.models import ANNOTATION_RISK
 from ira_native.domain.rules import RULESET_VERSION, compare_requirements, evaluate
 from ira_native.errors import IraError
 
@@ -172,16 +177,32 @@ class VerificationWorkflow:
             parse_run_id=parse_run_id,
             import_id=declaration_import_id,
         )
-        return self.store.get("draft", draft_id)
+        return self._draft(draft_id)
 
     def _draft(self, draft_id: str) -> dict:
         draft = self.store.get("draft", draft_id)
         self.evidence.get_run(draft["parse_run_id"])
         self._sheet(draft["declaration_import_id"])
+        # R1 drafts predate the annotation context. Reattach it on read only.
+        if any("annotation_context" not in item for item in draft["requirements"]):
+            evidence = {
+                item.evidence_id: item
+                for item in self.evidence.list_run_evidence(draft["parse_run_id"])
+            }
+            draft["requirements"] = [
+                attach_annotation_context(item, evidence[item["evidence_id"]])
+                for item in draft["requirements"]
+            ]
         return draft
 
     def get_draft(self, draft_id: str) -> dict:
         return self._draft(draft_id)
+
+    def diagnose_requirements(self, parse_run_id: str) -> dict:
+        """Inspect the rule-based candidate funnel for a registered parse run."""
+        from ira_native.application.candidates import diagnose_requirements
+
+        return diagnose_requirements(self.evidence.list_run_evidence(parse_run_id))
 
     def compare(
         self,
@@ -212,12 +233,13 @@ class VerificationWorkflow:
             and left["source_revision"] != right["source_revision"]
         )
         facts = {
-            "entity_binding": "confirmed"
-            if fields_checked and _related(left, right)
-            else "unconfirmed",
-            "source_assumption": "verified_for_checked_fields"
-            if fields_checked
-            else "candidate_only",
+            "entity_binding": "unconfirmed",
+            "fields_checked_claimed": fields_checked,
+            "annotation_association_unverified": any(
+                ANNOTATION_RISK in item["risk"] for item in (left, right)
+            ),
+            "source_assumption": "candidate_only",
+            "field_verification_state": "not_verified",
             "revision_relation": "same_version" if same_version and version_agrees else "unknown",
         }
         return {
@@ -273,7 +295,9 @@ class VerificationWorkflow:
                 else None
             )
             preconditions = {
-                "entity_binding": "confirmed" if confirmation else "unconfirmed",
+                "entity_binding": "unconfirmed",
+                "binding_claimed": confirmation is not None,
+                "annotation_association_unverified": ANNOTATION_RISK in requirement["risk"],
                 "source_assumption": "candidate_only",
                 "revision_relation": "unknown",
                 "record_completeness": "unknown",
@@ -285,8 +309,6 @@ class VerificationWorkflow:
                     and requirement["source_revision"] != declaration["source_revision"]
                 ):
                     preconditions["revision_relation"] = "same_version"
-                if confirmation.fields_checked and not declaration["risk"]:
-                    preconditions["source_assumption"] = "verified_for_checked_fields"
             evaluation = evaluate(requirement, declaration, preconditions)
             evaluation_id = _identity(run_id, candidate_id, "requirement_evaluation")
             findings.append(
@@ -312,6 +334,8 @@ class VerificationWorkflow:
             "draft_id": draft_id,
             "parse_run_id": draft["parse_run_id"],
             "source_asset_id": draft["source_asset_id"],
+            "binding_state": parse_run.binding_state.value,
+            "field_verification_state": "not_verified",
             "created_at": _time(),
             "reviewer": reviewer,
             "source_hashes": [
@@ -338,8 +362,19 @@ class VerificationWorkflow:
                 raise
             record["status"] = "stale"
             record["stale_reason"] = error.code
+        record["field_verification_state"] = "not_verified"
+        record.setdefault("binding_state", "unknown")
+        if record["status"] != "stale" and any(
+            finding["preconditions"].get("source_assumption") == "verified_for_checked_fields"
+            for finding in record["findings"]
+        ):
+            record["status"] = "stale"
+            record["stale_reason"] = "field_verification_missing"
         history = self.store.events("review", run_id)
         for finding in record["findings"]:
+            facts = finding["preconditions"]
+            if facts.get("entity_binding") == "confirmed":
+                facts.update(entity_binding="unconfirmed", binding_claimed=True)
             entries = [event for event in history if event["finding_id"] == finding["finding_id"]]
             if entries:
                 finding["review_history"] = entries

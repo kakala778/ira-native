@@ -11,7 +11,7 @@
   </div>
 </div>
 {% if run.status == 'stale' %}
-<div class="notice" role="status">来源已变动，历史结果已过期。<code>{{ run.stale_reason }}</code></div>
+<div class="notice" role="status">历史结果不可用于当前核验。<code>{{ run.stale_reason }}</code></div>
 {% endif %}
 <div class="review-layout">
   <aside class="panel findings-panel">
@@ -51,6 +51,8 @@
         {{ fact('规则结果', selected.evaluation.requirement_evaluation) }}
         {{ fact('原因', selected.evaluation.reason_code) }}
         {{ fact('来源前提', selected.preconditions.source_assumption) }}
+        {{ fact('PDF 与解析配对', run.binding_state) }}
+        {{ fact('字段核验', run.field_verification_state) }}
         {{ fact('版本前提', selected.preconditions.revision_relation) }}
       </dl>
       <h3>人工审查</h3>

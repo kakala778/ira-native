@@ -333,11 +333,72 @@ class EvidenceService:
         self._get_asset(run.artifact_asset_id)
         return run
 
-    def get_evidence(self, evidence_id: str) -> Evidence:
+    def get_evidence(
+        self,
+        evidence_id: str,
+        *,
+        query: str | None = None,
+        mode: Literal["literal", "exact"] = "literal",
+    ) -> Evidence:
         item = self.repository.get_evidence(evidence_id)
         self._get_asset(item.source_asset_id)
         self._get_asset(item.artifact_asset_id)
-        return item
+        if query is None:
+            return (
+                self._page_only(item, "annotation_context_unverified") if item.annotations else item
+            )
+        normalized = self._search_query(query, mode)
+        hit = self._search_match(item, normalized, mode)
+        if hit is None:
+            raise IraError("no_evidence_found")
+        return hit
+
+    def _search_query(self, query: str, mode: Literal["literal", "exact"]) -> str:
+        if (
+            not query.strip()
+            or "\0" in query
+            or len(query) > self.settings.max_search_chars
+            or mode not in ("literal", "exact")
+        ):
+            raise IraError("invalid_input")
+        return mineru.normalize_search_text(query)
+
+    @staticmethod
+    def _search_match(
+        item: Evidence, query: str, mode: Literal["literal", "exact"]
+    ) -> Evidence | None:
+        sources = tuple(
+            dict.fromkeys(
+                source
+                for source, segment in mineru.search_segments(
+                    item.kind, item.raw_content, item.native_context
+                )
+                if (segment == query if mode == "exact" else query in segment)
+            )
+        )
+        if not sources:
+            return None
+        hit = item.model_copy(update={"match_source": sources})
+        if "body" not in sources:
+            return EvidenceService._page_only(hit, "annotation_only_match")
+        if item.annotations and (
+            item.location_basis != "unique_pdf_text_region" or item.pdf_bbox is None
+        ):
+            return EvidenceService._page_only(hit, "body_location_unverified")
+        return hit
+
+    @staticmethod
+    def _page_only(item: Evidence, risk: str) -> Evidence:
+        return item.model_copy(
+            update={
+                "precision": "page",
+                "pdf_bbox": None,
+                "native_bbox": None,
+                "coord_system": None,
+                "location_basis": "physical_page",
+                "risk": (*item.risk, risk),
+            }
+        )
 
     def list_run_evidence(self, parse_run_id: str) -> list[Evidence]:
         self.get_run(parse_run_id)
@@ -372,15 +433,9 @@ class EvidenceService:
         mode: Literal["literal", "exact"] = "literal",
         limit: int = 50,
     ) -> SearchResult:
-        if (
-            not query.strip()
-            or "\0" in query
-            or len(query) > self.settings.max_search_chars
-            or mode not in ("literal", "exact")
-            or not 1 <= limit <= 200
-        ):
+        if not 1 <= limit <= 200:
             raise IraError("invalid_input")
-        normalized = " ".join(query.casefold().split())
+        normalized = self._search_query(query, mode)
         if parse_run_id is not None:
             run = self.get_run(parse_run_id)
             if source_asset_id is None:
@@ -407,6 +462,7 @@ class EvidenceService:
             physical_page=physical_page,
             kind=kind,
             limit=limit,
+            project=lambda item: self._search_match(item, normalized, mode),
         )
         return SearchResult(
             items=matches, backend=backend, code=None if matches else "no_evidence_found"
@@ -435,12 +491,20 @@ class EvidenceService:
     def get_pdf_page_image(self, asset_id: str, physical_page: int) -> bytes:
         return self._with_pdf_page(asset_id, physical_page, pdf.render_page)
 
-    def get_evidence_page(self, evidence_id: str) -> PdfPageLocation:
-        item = self.get_evidence(evidence_id)
+    def get_evidence_page(
+        self,
+        evidence_id: str,
+        *,
+        query: str | None = None,
+        mode: Literal["literal", "exact"] = "literal",
+    ) -> PdfPageLocation:
+        item = self.get_evidence(evidence_id, query=query, mode=mode)
         page = self.get_pdf_page(item.source_asset_id, item.physical_page)
         return page.model_copy(
             update={
                 "evidence_id": item.evidence_id,
+                "match_source": item.match_source,
+                "annotation_fields": tuple(item.annotations),
                 "precision": item.precision,
                 "pdf_bbox": item.pdf_bbox,
                 "risk": item.risk,

@@ -9,6 +9,7 @@ from html.parser import HTMLParser
 
 from pydantic import JsonValue
 
+from ira_native.domain.models import MatchSource
 from ira_native.errors import IraError
 
 ADAPTER_VERSION = "mineru-structured-content/2"
@@ -201,20 +202,36 @@ def _strings(value: JsonValue) -> Iterator[str]:
         yield str(value)
 
 
-def search_text(block: NativeBlock) -> str:
+def normalize_search_text(text: str) -> str:
+    return " ".join(text.replace("\x00", " ").casefold().split())
+
+
+def search_segments(
+    kind: str, content: JsonValue, native_context: dict[str, JsonValue]
+) -> Iterator[tuple[MatchSource, str]]:
     parts = []
-    for text in _strings(block.content):
-        if block.kind == "table":
+    for text in _strings(content):
+        if kind == "table":
             html = _TableText()
             html.feed(text)
             html.close()
             parts.extend(html.parts)
         else:
             parts.append(text)
-    for key in ("captions", "footnotes"):
-        annotations = block.native_context.get(key)
+    yield "body", normalize_search_text(" ".join(parts))
+    attachment_fields: tuple[tuple[str, MatchSource], ...] = (
+        ("captions", "caption"),
+        ("footnotes", "footnote"),
+    )
+    for key, source in attachment_fields:
+        annotations = native_context.get(key)
         if isinstance(annotations, list):
             for annotation in annotations:
                 if isinstance(annotation, dict) and isinstance(annotation.get("content"), str):
-                    parts.append(annotation["content"])
-    return " ".join(" ".join(parts).replace("\x00", " ").casefold().split())
+                    yield source, normalize_search_text(annotation["content"])
+
+
+def search_text(block: NativeBlock) -> str:
+    return " ".join(
+        text for _, text in search_segments(block.kind, block.content, block.native_context) if text
+    )

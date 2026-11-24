@@ -138,6 +138,7 @@ async def _investigate(
     def project(item: Evidence, max_excerpt_chars: int) -> dict:
         raw = item.raw_content
         content = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
+        annotation_only = "annotation_only_match" in item.risk
         return {
             "evidence_id": item.evidence_id,
             "parse_run_id": item.parse_run_id,
@@ -145,7 +146,10 @@ async def _investigate(
             "kind": item.kind,
             "source_pointer": item.source_pointer,
             "source_state": item.source_state,
-            "excerpt": content[:max_excerpt_chars],
+            "match_source": item.match_source,
+            "precision": item.precision,
+            "annotation_only_match": annotation_only,
+            "excerpt": None if annotation_only else content[:max_excerpt_chars],
         }
 
     def search(query: str, page: int | None = None) -> list[Evidence]:
@@ -174,7 +178,8 @@ async def _investigate(
         if evidence_id not in discovered:
             record("get_evidence", [], False)
             return {"code": "no_evidence_found"}
-        item = service.get_evidence(evidence_id)
+        service.get_evidence(evidence_id)  # Check source access again.
+        item = discovered[evidence_id]
         record("get_evidence", [evidence_id], evidence_id not in detailed)
         detailed.add(evidence_id)
         return project(item, 1000)

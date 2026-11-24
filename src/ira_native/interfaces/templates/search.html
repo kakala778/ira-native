@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from 'components.html' import search_match %}
 {% block title %}证据检索{% endblock %}
 {% block content %}
 <div class="page-heading"><div><h1>证据检索</h1><p>按字面检索已登记的解析证据。</p></div></div>
@@ -16,8 +17,11 @@
   <ul class="search-results">
     {% for item in result.items %}
     <li>
-      <a href="/workbench/evidence/{{ item.evidence_id }}"><strong>物理第 {{ item.physical_page }} 页</strong> · {{ '块级定位' if item.precision == 'block' else '页级定位' }}</a>
+      <a href="/workbench/evidence/{{ item.evidence_id }}?q={{ q | urlencode }}"><strong>物理第 {{ item.physical_page }} 页</strong> · {{ '正文块级定位' if item.precision == 'block' else '页级定位' }}</a>
+      {{ search_match(item) }}
+      {% if 'body' in item.match_source %}
       <p class="truncate">{{ item.raw_content if item.raw_content is string else item.raw_content | tojson }}</p>
+      {% endif %}
     </li>
     {% else %}<li class="muted">当前范围未检索到证据。</li>{% endfor %}
   </ul>

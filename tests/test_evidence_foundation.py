@@ -39,7 +39,9 @@ def test_independent_registry_and_native_provenance(service, pair):
     assert hit.extraction_state == "candidate"
     assert hit.page_index == 0
     assert hit.physical_page == 1
-    assert service.get_evidence(hit.evidence_id) == hit
+    assert hit.match_source == ("body",)
+    assert service.get_evidence(hit.evidence_id, query="OLT") == hit
+    assert service.get_evidence(hit.evidence_id) == hit.model_copy(update={"match_source": ()})
     assert service.repository.get_asset_data(imported.artifact.asset_id) == parsed.read_bytes()
 
 
@@ -54,7 +56,8 @@ def test_repeated_and_changed_artifacts_keep_old_evidence(service, pair):
     second = service.ingest_pair(pdf, parsed)
     assert first.source.asset_id == second.source.asset_id
     assert first.parse_run.parse_run_id != second.parse_run.parse_run_id
-    assert service.get_evidence(old.evidence_id) == old
+    assert service.get_evidence(old.evidence_id, query="ONU") == old
+    assert service.get_evidence(old.evidence_id) == old.model_copy(update={"match_source": ()})
     result = service.search_evidence("alternative", parse_run_id=second.parse_run.parse_run_id)
     assert len(result.items) == 1
     assert result.items[0].evidence_id != old.evidence_id

@@ -36,16 +36,27 @@ function viewer(container) {
   let revision = 0;
   let renderTask;
   let priorWidth = 0;
-  const pdf = moduleForPdf().then((pdfjs) => pdfjs.getDocument({
-    url: container.dataset.pdf,
-    enableXfa: false,
-    isEvalSupported: false,
-    cMapUrl: new URL("cmaps/", assets).href,
-    cMapPacked: true,
-    standardFontDataUrl: new URL("standard_fonts/", assets).href,
-    wasmUrl: new URL("wasm/", assets).href,
-    iccUrl: new URL("iccs/", assets).href,
-  }).promise);
+  let pdf;
+
+  function openDocument() {
+    pdf ??= moduleForPdf().then((pdfjs) => pdfjs.getDocument({
+      url: container.dataset.pdf,
+      enableXfa: false,
+      isEvalSupported: false,
+      cMapUrl: new URL("cmaps/", assets).href,
+      cMapPacked: true,
+      standardFontDataUrl: new URL("standard_fonts/", assets).href,
+      wasmUrl: new URL("wasm/", assets).href,
+      iccUrl: new URL("iccs/", assets).href,
+    }).promise);
+    return pdf;
+  }
+
+  function renderStatus(state, message, precision = "none") {
+    container.dataset.renderState = state;
+    container.dataset.precision = precision;
+    status.textContent = message;
+  }
 
   function buttons() {
     current.textContent = pageNumber;
@@ -60,9 +71,9 @@ function viewer(container) {
     renderTask?.cancel();
     stage.replaceChildren();
     buttons();
-    status.textContent = "正在载入 PDF 物理第 " + number + " 页";
+    renderStatus("loading", "正在载入 PDF 物理第 " + number + " 页");
     try {
-      const file = await pdf;
+      const file = await openDocument();
       if (id !== revision) return;
       pageCount = file.numPages;
       const page = await file.getPage(number);
@@ -90,23 +101,32 @@ function viewer(container) {
       });
       await renderTask.promise;
       if (id !== revision) return;
-      const anchored = number === originalPage && container.dataset.precision === "block" &&
+      const anchored = number === originalPage && container.dataset.evidencePrecision === "block" &&
         Array.isArray(evidenceBox) && evidenceBox.length === 4 && evidenceBox.every(Number.isFinite);
       if (anchored) drawHighlight(sheet, viewport, evidenceBox);
       stage.replaceChildren(sheet);
-      status.textContent = "物理第 " + number + " 页 · " + (anchored ? "块级定位" : "页级定位");
+      renderStatus("canvas", "物理第 " + number + " 页 · PDF.js 渲染完成 · " +
+        (anchored ? "已显示块级高亮" : "页级预览"), anchored ? "block" : "page");
       buttons();
     } catch {
       if (id !== revision) return;
       const fallback = new Image();
       fallback.className = "page-fallback";
       fallback.alt = "PDF 物理第 " + number + " 页";
-      fallback.src = container.dataset.pageImage + number + "/image";
+      renderStatus("fallback-loading", "PDF.js 渲染失败 · 正在载入整页 PNG · 高亮未显示");
+      fallback.addEventListener("load", () => {
+        if (id === revision) {
+          renderStatus("fallback", "物理第 " + number + " 页 · PDF.js 渲染失败，已回退到整页 PNG · 高亮未显示", "page");
+        }
+      });
       fallback.addEventListener("error", () => {
-        if (id === revision) status.textContent = "原页预览不可用";
+        if (id === revision) {
+          stage.replaceChildren();
+          renderStatus("error", "物理第 " + number + " 页 · PDF.js 渲染与 PNG 回退均失败，无法预览 · 高亮未显示");
+        }
       });
       stage.replaceChildren(fallback);
-      status.textContent = "物理第 " + number + " 页 · 页级预览";
+      fallback.src = container.dataset.pageImage + number + "/image";
       buttons();
     }
   }

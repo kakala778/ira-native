@@ -178,12 +178,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return service.get_run(parse_run_id)
 
     @app.get(f"{_PREFIX}/evidence/{{evidence_id}}")
-    def get_evidence(evidence_id: RegistryID, service: Service) -> Evidence:
-        return service.get_evidence(evidence_id)
+    def get_evidence(
+        evidence_id: RegistryID,
+        service: Service,
+        q: str | None = None,
+        mode: Literal["literal", "exact"] = "literal",
+    ) -> Evidence:
+        return service.get_evidence(evidence_id, query=q, mode=mode)
 
     @app.get(f"{_PREFIX}/evidence/{{evidence_id}}/page")
-    def get_evidence_page(evidence_id: RegistryID, service: Service) -> PdfPageLocation:
-        return service.get_evidence_page(evidence_id)
+    def get_evidence_page(
+        evidence_id: RegistryID,
+        service: Service,
+        q: str | None = None,
+        mode: Literal["literal", "exact"] = "literal",
+    ) -> PdfPageLocation:
+        return service.get_evidence_page(evidence_id, query=q, mode=mode)
 
     @app.get(f"{_PREFIX}/search")
     def search(

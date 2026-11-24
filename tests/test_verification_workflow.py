@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import sqlite3
 
 import pytest
@@ -7,11 +8,13 @@ from fixtures.synthetic.generate_gpon_workflow import generate
 from openpyxl import Workbook
 from pydantic_ai.messages import ModelResponse, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
+from typer.testing import CliRunner
 
 from ira_native.adapters.spreadsheet import read_sheet
 from ira_native.application.service import EvidenceService
 from ira_native.application.workflow import VerificationWorkflow
 from ira_native.errors import IraError
+from ira_native.interfaces.cli import app
 from ira_native.settings import Settings
 
 
@@ -72,12 +75,10 @@ def test_synthetic_full_deterministic_flow(tmp_path):
             )
         ]
         run = workflow.verify(draft["draft_id"], confirmed, "示例审查")
-        assert [f["disposition"] for f in run["findings"]] == [
-            "issue",
-            "informational",
-            "no_issue",
-            "review_required",
-        ]
+        # The rule gold tests cover outcomes with verified fields. This integration
+        # supplies checkbox claims only and must stop before those outcomes.
+        assert [f["disposition"] for f in run["findings"]] == ["review_required"] * 4
+        assert run["findings"][0]["evaluation"]["reason_code"] == "FIELD_SUPPORT_UNKNOWN"
         finding = run["findings"][0]
         assert evidence.get_evidence_page(finding["requirement"]["evidence_id"]).physical_page == 1
         workflow.review(
@@ -98,7 +99,7 @@ def test_synthetic_full_deterministic_flow(tmp_path):
     with EvidenceService(settings) as evidence:
         loaded = VerificationWorkflow(evidence).get_run(run["run_id"])
         assert len(loaded["findings"][0]["review_history"]) == 2
-        assert loaded["findings"][0]["disposition"] == "issue"
+        assert loaded["findings"][0]["disposition"] == "review_required"
     with sqlite3.connect(settings.database) as conn:
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
@@ -107,6 +108,46 @@ def test_workflow_upload_requires_opt_in(tmp_path):
     with EvidenceService(Settings(tmp_path / "registry.sqlite")) as evidence:
         with pytest.raises(IraError, match="permission_denied"):
             VerificationWorkflow(evidence).ingest_spreadsheet(b"", "test.csv", {})
+
+
+def test_diagnostic_cli_reports_only_structural_counts_and_ids(tmp_path, monkeypatch):
+    pdf, parsed, _ = generate(tmp_path / "inputs")
+    database = tmp_path / "ira.sqlite"
+    with EvidenceService(Settings(database, (pdf.parent,))) as evidence:
+        run = evidence.ingest_pair(pdf, parsed).parse_run
+    monkeypatch.setenv("IRA_DB", str(database))
+    monkeypatch.setenv("IRA_ALLOWED_ROOTS", str(pdf.parent))
+    response = CliRunner().invoke(app, ["verify", "diagnose", run.parse_run_id])
+    assert response.exit_code == 0, response.output
+    report = json.loads(response.stdout)
+    assert report["evidence_total"] == 4
+    assert report["records_seen"] == report["candidates_emitted"] == 4
+    assert report["records_rejected"] == 0
+    assert "equipment_class:" not in response.stdout
+    assert "虚构区域" not in response.stdout
+
+
+def test_diagnostic_cli_accounts_for_zero_candidates_despite_matching_terms(
+    tmp_path, pair, monkeypatch
+):
+    pdf, parsed, _ = pair
+    database = tmp_path / "ira.sqlite"
+    with EvidenceService(Settings(database, (pdf.parent,))) as evidence:
+        run = evidence.ingest_pair(pdf, parsed).parse_run
+        assert evidence.search_evidence("GPON", parse_run_id=run.parse_run_id).items
+    monkeypatch.setenv("IRA_DB", str(database))
+    monkeypatch.setenv("IRA_ALLOWED_ROOTS", str(pdf.parent))
+    response = CliRunner().invoke(app, ["verify", "diagnose", run.parse_run_id])
+    assert response.exit_code == 0, response.output
+    report = json.loads(response.stdout)
+    assert report["evidence_total"] == 4
+    assert report["tables_seen"] == report["header_mapping_failed"] == 2
+    assert report["stage_counts"]["evidence_outcomes"] == {
+        "NO_RECOGNIZED_FIELDS": 2,
+        "TABLE_HEADER_NOT_EXPLICIT": 1,
+        "CONTINUATION_HEADER_UNCONFIRMED": 1,
+    }
+    assert report["records_seen"] == report["candidates_emitted"] == 0
 
 
 def test_spreadsheet_binding_does_not_change_raw_asset_identity(tmp_path):

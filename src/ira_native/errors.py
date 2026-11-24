@@ -12,6 +12,10 @@ ERRORS: dict[str, tuple[int, str]] = {
     ),
     "permission_denied": (403, "Local access to this resource is not authorized."),
     "source_missing": (404, "The original file or registered asset could not be found."),
+    "field_verification_missing": (
+        409,
+        "The historical run lacks an auditable field verification.",
+    ),
     "source_unreadable": (422, "The source could not be read."),
     "parse_run_not_found": (404, "The registered parse run could not be found."),
     "no_evidence_found": (404, "No matching evidence was found in the searched scope."),

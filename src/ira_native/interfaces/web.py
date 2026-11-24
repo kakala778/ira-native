@@ -257,7 +257,11 @@ async def prepare(request: Request) -> Response:
 @router.get("/workbench/drafts/{draft_id}", name="web_draft")
 def draft(request: Request, draft_id: str) -> Response:
     try:
-        item = _workflow(request).get_draft(_id(draft_id))
+        workflow = _workflow(request)
+        item = workflow.get_draft(_id(draft_id))
+        diagnostics = (
+            None if item["requirements"] else workflow.diagnose_requirements(item["parse_run_id"])
+        )
         declarations_by_key = defaultdict(list)
         for row in item["declarations"]:
             declarations_by_key[_match_key(row)].append(row)
@@ -269,7 +273,7 @@ def draft(request: Request, draft_id: str) -> Response:
             ]
             for requirement in item["requirements"]
         }
-        return _page(request, "draft", draft=item, matches=matches)
+        return _page(request, "draft", draft=item, matches=matches, diagnostics=diagnostics)
     except IraError as error:
         return _error(request, error)
 
@@ -330,23 +334,23 @@ def search(
 
 
 def _original(
-    request: Request, evidence_id: str
+    request: Request, evidence_id: str, query: str | None = None
 ) -> tuple[object | None, object | None, dict | None]:
     if not evidence_id:
         return None, None, None
     try:
-        item = _evidence(request).get_evidence(_id(evidence_id))
+        item = _evidence(request).get_evidence(_id(evidence_id), query=query)
     except IraError as error:
         return None, None, error.payload()
     try:
-        return item, _evidence(request).get_evidence_page(evidence_id), None
+        return item, _evidence(request).get_evidence_page(evidence_id, query=query), None
     except IraError as error:
         return item, None, error.payload()
 
 
 @router.get("/workbench/evidence/{evidence_id}", name="web_evidence")
-def evidence(request: Request, evidence_id: str) -> Response:
-    item, location, problem = _original(request, evidence_id)
+def evidence(request: Request, evidence_id: str, q: str | None = None) -> Response:
+    item, location, problem = _original(request, evidence_id, query=q)
     return _page(request, "evidence", item=item, location=location, problem=problem)
 
 

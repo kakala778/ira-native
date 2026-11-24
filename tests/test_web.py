@@ -69,12 +69,18 @@ def test_workbench_runs_confirmation_and_review_against_registered_sources(tmp_p
         payload[f"same_version_{candidate}"] = "on"
         run = client.post(verify, data=payload)
         assert run.status_code == 200, run.text
-        assert "待核实问题" in run.text and "清单与核验" in run.text
+        assert "待复核" in run.text and "清单与核验" in run.text
         assert "页级定位" in run.text
         assert 'data-bbox="null"' in run.text
+        view = BeautifulSoup(run.text, "html.parser")
+        assert view.select_one(".pdf-viewer")["data-render-state"] == "loading"
+        assert "正在载入" in view.select_one("[data-pdf-status]").get_text()
         export = client.get(str(run.url) + "/export.json").json()
         first = export["findings"][0]
-        assert first["disposition"] == "issue"
+        assert first["disposition"] == "review_required"
+        assert first["evaluation"]["reason_code"] == "FIELD_SUPPORT_UNKNOWN"
+        assert export["binding_state"] == "declared"
+        assert export["field_verification_state"] == "not_verified"
         finding_url = str(run.url) + f"/findings/{first['finding_id']}/review"
         review = client.post(
             finding_url,

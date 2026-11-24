@@ -33,17 +33,17 @@ def test_cli_and_http_share_evidence_and_physical_pages(pair, tmp_path, monkeypa
     assert found.exit_code == 0, found.output
     item = json.loads(found.stdout)["items"][0]
     evidence_id = item["evidence_id"]
-    shown = runner.invoke(app, ["evidence", "show", evidence_id])
-    location = runner.invoke(app, ["evidence", "page", evidence_id])
+    shown = runner.invoke(app, ["evidence", "show", evidence_id, "--query", "ONU"])
+    location = runner.invoke(app, ["evidence", "page", evidence_id, "--query", "ONU"])
     assert shown.exit_code == location.exit_code == 0
     assert json.loads(location.stdout)["physical_page"] == 3
     assert json.loads(location.stdout)["precision"] == "block"
     with TestClient(create_app(Settings(database, (pdf.parent,))), base_url=LOCAL) as client:
-        response = client.get(f"{BASE}/evidence/{evidence_id}")
+        response = client.get(f"{BASE}/evidence/{evidence_id}", params={"q": "ONU"})
         assert response.status_code == 200
         assert response.json() == item == json.loads(shown.stdout)
-        assert client.get(f"{BASE}/evidence/{evidence_id}/page").json() == json.loads(
-            location.stdout
+        assert client.get(f"{BASE}/evidence/{evidence_id}/page", params={"q": "ONU"}).json() == (
+            json.loads(location.stdout)
         )
         assert client.get(f"{BASE}/search", params={"q": "设备清单"}).json()["items"]
         assert (

@@ -11,7 +11,7 @@
   <h2>候选证据</h2>
   <ul class="search-results">
     {% for evidence_id in report.evidence_ids %}
-    <li><a href="/workbench/evidence/{{ evidence_id }}">打开证据 <code>{{ evidence_id }}</code></a></li>
+    <li><a href="/workbench/evidence/{{ evidence_id }}">打开原始证据块 <code>{{ evidence_id }}</code></a></li>
     {% endfor %}
   </ul>
   {% endif %}

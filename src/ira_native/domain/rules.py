@@ -11,6 +11,8 @@ from typing import Literal, TypedDict
 from pint import UnitRegistry
 from pydantic import BaseModel, ValidationError
 
+from ira_native.domain.models import ANNOTATION_RISK
+
 RULESET_VERSION = "gpon/1"
 Evaluation = Literal["satisfied", "violated", "not_applicable", "undetermined"]
 Disposition = Literal["no_issue", "issue", "informational", "review_required", "blocked"]
@@ -128,6 +130,8 @@ def _source_gap(facts: Facts) -> str | None:
         return "SOURCE_MISMATCH"
     if source in ("denied", "permission_denied"):
         return "PERMISSION_DENIED"
+    if facts.get("annotation_association_unverified") is True:
+        return ANNOTATION_RISK
     if source == "parse_suspicious":
         return "EXTRACTION_RISK"
     if source == "visual_ambiguous":
