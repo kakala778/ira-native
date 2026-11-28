@@ -171,6 +171,16 @@ class Registry:
             ).mappings()
             return [DocumentRevision.model_validate(dict(row)) for row in rows]
 
+    def list_revision_family(self, asset_id: str) -> list[DocumentRevision]:
+        known_documents = select(revisions.c.document_id).where(revisions.c.asset_id == asset_id)
+        with self._transaction() as conn:
+            rows = conn.execute(
+                select(revisions)
+                .where(revisions.c.document_id.in_(known_documents))
+                .order_by(revisions.c.revision_id)
+            ).mappings()
+            return [DocumentRevision.model_validate(dict(row)) for row in rows]
+
     def save_run(
         self,
         run: ParseRun,
@@ -229,17 +239,22 @@ class Registry:
         with self._transaction() as conn:
             return self._read_run(conn, parse_run_id)
 
-    def get_evidence(self, evidence_id: str) -> Evidence:
+    def get_evidence(self, evidence_id: str, *, parse_run_id: str | None = None) -> Evidence:
+        query = select(evidence.c.record).where(evidence.c.evidence_id == evidence_id)
+        if parse_run_id is not None:
+            query = query.where(evidence.c.parse_run_id == parse_run_id)
         with self._transaction() as conn:
-            record = conn.execute(
-                select(evidence.c.record).where(evidence.c.evidence_id == evidence_id)
-            ).scalar_one_or_none()
+            record = conn.execute(query).scalar_one_or_none()
         if record is None:
             raise IraError("no_evidence_found")
         return Evidence.model_validate(record)
 
-    def list_run_evidence(self, parse_run_id: str) -> list[Evidence]:
+    def list_run_evidence(
+        self, parse_run_id: str, *, pages: tuple[int, ...] | None = None
+    ) -> list[Evidence]:
         query = select(evidence.c.record).where(evidence.c.parse_run_id == parse_run_id)
+        if pages is not None:
+            query = query.where(evidence.c.page_index.in_([page - 1 for page in pages]))
         with self._transaction() as conn:
             return [
                 Evidence.model_validate(value)
@@ -260,6 +275,7 @@ class Registry:
         kind: str | None,
         limit: int,
         project: Callable[[Evidence], Evidence | None],
+        physical_pages: tuple[int, int] | None = None,
     ) -> list[Evidence]:
         statement = (
             select(evidence.c.record)
@@ -275,6 +291,10 @@ class Registry:
             statement = statement.where(runs.c.parse_run_id == parse_run_id)
         if physical_page is not None:
             statement = statement.where(evidence.c.page_index == physical_page - 1)
+        if physical_pages is not None:
+            statement = statement.where(
+                evidence.c.page_index.between(physical_pages[0] - 1, physical_pages[1] - 1)
+            )
         if kind is not None:
             statement = statement.where(evidence.c.kind == kind)
         # The stored index joins searchable segments. Validate their boundaries before

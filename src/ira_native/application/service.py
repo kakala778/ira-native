@@ -7,6 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, Self
 
+from ira_native import __version__
 from ira_native.adapters import mineru, pdf
 from ira_native.adapters.files import LocalFiles
 from ira_native.adapters.repository import AssetInput, Backend, Registry
@@ -60,6 +61,7 @@ class EvidenceService:
     def doctor(self) -> dict[str, str | int | bool]:
         return {
             "status": "ok",
+            "version": __version__,
             "sqlite_version": sqlite3.sqlite_version,
             "fts5_trigram": self.repository.fts_available,
             "search_backend": self._search_backend("long", "literal"),
@@ -333,14 +335,23 @@ class EvidenceService:
         self._get_asset(run.artifact_asset_id)
         return run
 
+    def revision_family(self, asset_id: str) -> list[DocumentRevision]:
+        self._get_asset(asset_id)
+        return self.repository.list_revision_family(asset_id)
+
+    def check_parse_artifact(self, parse_run_id: str) -> None:
+        run = self.get_run(parse_run_id)
+        self._read_asset(self._get_asset(run.artifact_asset_id))
+
     def get_evidence(
         self,
         evidence_id: str,
         *,
         query: str | None = None,
         mode: Literal["literal", "exact"] = "literal",
+        parse_run_id: str | None = None,
     ) -> Evidence:
-        item = self.repository.get_evidence(evidence_id)
+        item = self.repository.get_evidence(evidence_id, parse_run_id=parse_run_id)
         self._get_asset(item.source_asset_id)
         self._get_asset(item.artifact_asset_id)
         if query is None:
@@ -400,9 +411,15 @@ class EvidenceService:
             }
         )
 
-    def list_run_evidence(self, parse_run_id: str) -> list[Evidence]:
-        self.get_run(parse_run_id)
-        return self.repository.list_run_evidence(parse_run_id)
+    def list_run_evidence(
+        self, parse_run_id: str, *, pages: tuple[int, ...] | None = None
+    ) -> list[Evidence]:
+        run = self.get_run(parse_run_id)
+        if pages is not None:
+            total = self.get_asset(run.source_asset_id).page_count or 0
+            if not pages or any(type(page) is not int or not 1 <= page <= total for page in pages):
+                raise IraError("invalid_location")
+        return self.repository.list_run_evidence(parse_run_id, pages=pages)
 
     def _search_backend(self, query: str, mode: Literal["literal", "exact"]) -> Backend:
         if mode == "exact":
@@ -432,12 +449,13 @@ class EvidenceService:
         kind: str | None = None,
         mode: Literal["literal", "exact"] = "literal",
         limit: int = 50,
+        physical_pages: tuple[int, int] | None = None,
     ) -> SearchResult:
         if not 1 <= limit <= 200:
             raise IraError("invalid_input")
         normalized = self._search_query(query, mode)
-        if parse_run_id is not None:
-            run = self.get_run(parse_run_id)
+        run = self.get_run(parse_run_id) if parse_run_id is not None else None
+        if run is not None:
             if source_asset_id is None:
                 source_asset_id = run.source_asset_id
         asset = self._get_asset(source_asset_id) if source_asset_id is not None else None
@@ -450,9 +468,15 @@ class EvidenceService:
         ):
             raise IraError("invalid_location")
         backend = self._search_backend(normalized, mode)
-        allowed = [
-            source.asset_id for source in self.repository.list_assets() if self._can_read(source)
-        ]
+        allowed = (
+            [run.source_asset_id, run.artifact_asset_id]
+            if run
+            else [
+                source.asset_id
+                for source in self.repository.list_assets()
+                if self._can_read(source)
+            ]
+        )
         matches = self.repository.search(
             normalized,
             backend,
@@ -463,6 +487,7 @@ class EvidenceService:
             kind=kind,
             limit=limit,
             project=lambda item: self._search_match(item, normalized, mode),
+            physical_pages=physical_pages,
         )
         return SearchResult(
             items=matches, backend=backend, code=None if matches else "no_evidence_found"

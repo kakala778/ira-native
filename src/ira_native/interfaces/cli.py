@@ -2,8 +2,10 @@
 
 import asyncio
 import json
+from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import Annotated
 
@@ -140,7 +142,12 @@ def prepare_verification(
 
 @verification.command("run")
 def run_verification(
-    draft_id: str, reviewer: Annotated[str, typer.Option()], confirmations: Path | None = None
+    draft_id: str,
+    reviewer: Annotated[str, typer.Option()],
+    confirmations: Path | None = None,
+    conditional_preview: bool = False,
+    mapping_reviewed: bool = False,
+    use_human_reviews: bool = False,
 ) -> None:
     """Run against explicit checked pairing records, or keep the inputs as candidates."""
     with _service() as service:
@@ -153,7 +160,106 @@ def run_verification(
                 raise IraError("invalid_input") from None
             if not isinstance(selected, list):
                 raise IraError("invalid_input")
-        _emit(VerificationWorkflow(service).verify(draft_id, selected, reviewer))
+        _emit(
+            VerificationWorkflow(service).verify(
+                draft_id,
+                selected,
+                reviewer,
+                conditional_preview=conditional_preview,
+                mapping_reviewed=mapping_reviewed,
+                use_human_reviews=use_human_reviews,
+            )
+        )
+
+
+@verification.command("offline")
+def offline_verification(
+    pdf: Annotated[Path, typer.Option()],
+    parsed: Annotated[Path, typer.Option()],
+    spreadsheet: Annotated[Path, typer.Option()],
+    database: Annotated[Path, typer.Option()],
+    pages: Annotated[
+        str | None, typer.Option(help="Inclusive 1-based physical page range, e.g. 2-4.")
+    ] = None,
+    mapping_json: str = "{}",
+    sheet: str | None = None,
+    encoding: str = "utf-8-sig",
+    summary: Path | None = None,
+    local_details: Path | None = None,
+    confirmations: Path | None = None,
+    reviewer: str = "Offline review",
+    use_human_reviews: bool = False,
+) -> None:
+    """Run locally. Standard output and --summary contain counts and reason codes only."""
+    try:
+        interval = None
+        if pages is not None:
+            first, _, last = pages.partition("-")
+            interval = (int(first), int(last or first))
+            if not 1 <= interval[0] <= interval[1]:
+                raise ValueError
+        mapping = json.loads(mapping_json)
+        if not isinstance(mapping, dict) or any(not isinstance(v, str) for v in mapping.values()):
+            raise ValueError
+        paths = [pdf, parsed, spreadsheet]
+        if confirmations is not None:
+            paths.append(confirmations)
+        protected = {path.resolve() for path in paths}
+        outputs = [
+            path.resolve() for path in (database, summary, local_details) if path is not None
+        ]
+        if len(outputs) != len(set(outputs)) or protected.intersection(outputs):
+            raise ValueError
+        if any(path.exists() for path in outputs if path != database.resolve()):
+            raise ValueError
+        settings = replace(
+            Settings.from_env(),
+            database=database,
+            allowed_roots=tuple(dict.fromkeys(path.resolve().parent for path in paths)),
+        )
+        with EvidenceService(settings) as service:
+            workflow = VerificationWorkflow(service)
+            source = service.ingest_pair(pdf, parsed, declared=True).parse_run
+            imported = workflow.ingest_spreadsheet_path(spreadsheet, mapping, sheet, encoding)
+            draft = workflow.prepare(source.parse_run_id, imported["import_id"], pages=interval)
+            selected = []
+            if confirmations is not None:
+                _, data = service.files.read(confirmations, settings.max_json_bytes)
+                selected = json.loads(data)
+                if not isinstance(selected, list):
+                    raise ValueError
+            run = workflow.verify(
+                draft["draft_id"],
+                selected,
+                reviewer,
+                conditional_preview=True,
+                use_human_reviews=use_human_reviews,
+            )
+            diagnostic = workflow.diagnose_requirements(source.parse_run_id, pages=interval)
+            counts = {key: value for key, value in diagnostic.items() if key != "evidence_index"}
+            counts.update(
+                declaration_rows=len(draft["declarations"]),
+                candidate_edges=len(draft["candidate_edges"]),
+                system_confirmed=sum(e["system_confirmation"] for e in draft["candidate_edges"]),
+                field_verification_state=run["field_verification_state"],
+                formal_statuses=dict(Counter(f["formal_status"] for f in run["findings"])),
+                workflow_dispositions=dict(Counter(f["disposition"] for f in run["findings"])),
+                conditional_statuses=dict(
+                    Counter(f["conditional_calculation"]["status"] for f in run["findings"])
+                ),
+                conditional_reasons=dict(
+                    Counter(f["conditional_calculation"]["reason_code"] for f in run["findings"])
+                ),
+            )
+            for path, content in ((summary, counts), (local_details, {"draft": draft, "run": run})):
+                if path is not None:
+                    with path.open("x", encoding="utf-8") as output:
+                        json.dump(content, output, ensure_ascii=False, indent=2)
+            _emit(counts)
+    except (IraError, OSError, ValueError) as error:
+        problem = error if isinstance(error, IraError) else IraError("invalid_input")
+        typer.echo(json.dumps(problem.payload(), ensure_ascii=False), err=True)
+        raise typer.Exit(code=1) from None
 
 
 @verification.command("diagnose")
@@ -198,10 +304,31 @@ def compare_requirements(
 
 
 @verification.command("investigate")
-def investigate_verification(run_id: str) -> None:
+def investigate_verification(
+    run_id: str,
+    goal: str | None = None,
+    finding_id: str | None = None,
+    allow_reverification: bool = False,
+) -> None:
     """Investigate a deterministic evidence gap using the configured local model."""
     with _service() as service:
-        _emit(asyncio.run(VerificationWorkflow(service).investigate(run_id)))
+        _emit(
+            asyncio.run(
+                VerificationWorkflow(service).investigate(
+                    run_id,
+                    goal=goal,
+                    finding_id=finding_id,
+                    allow_reverification=allow_reverification,
+                )
+            )
+        )
+
+
+@verification.command("agent-task")
+def show_agent_task(run_id: str, task_id: str) -> None:
+    """Read the persisted structured Agent trace."""
+    with _service() as service:
+        _emit(VerificationWorkflow(service).get_agent_task(run_id, task_id))
 
 
 def main() -> None:

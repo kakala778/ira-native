@@ -4,7 +4,7 @@ import json
 import math
 import re
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from html.parser import HTMLParser
 
 from pydantic import JsonValue
@@ -12,9 +12,9 @@ from pydantic import JsonValue
 from ira_native.domain.models import MatchSource
 from ira_native.errors import IraError
 
-ADAPTER_VERSION = "mineru-structured-content/2"
+ADAPTER_VERSION = "mineru-structured-content/3"
 NORMALIZED_PAGE = "normalized_page"
-_CONTEXT_FIELDS = ("level", "sub_type", "captions", "footnotes", "image_source")
+_CONTEXT_FIELDS = ("level", "sub_type", "captions", "footnotes", "image_source", "structured_table")
 _KNOWN_KINDS = {
     "text",
     "title",
@@ -112,6 +112,58 @@ def _block(raw: JsonValue, pointer: str) -> NativeBlock:
     return NativeBlock(pointer, kind, raw["content"], bbox, coord, continues, context, tuple(risks))
 
 
+def _recoveries(extensions: dict) -> dict[str, dict]:
+    extension = extensions.get("exp03_table_recovery")
+    if (
+        not isinstance(extension, dict)
+        or extension.get("adapter_version") != "exp03-table-adapter/1"
+    ):
+        return {}
+    entries = extension.get("recoveries")
+    if not isinstance(entries, list):
+        raise IraError("parse_failed")
+    tables = {}
+    for entry in entries:
+        pointer = entry.get("b0_native_pointer") if isinstance(entry, dict) else None
+        if not isinstance(pointer, str) or pointer in tables:
+            raise IraError("parse_failed")
+        tables[pointer] = entry
+    return tables
+
+
+def _attach_recovery(block: NativeBlock, recovery: dict) -> NativeBlock:
+    if block.kind != "table":
+        raise IraError("parse_failed")
+    projection = recovery.get("projection")
+    projection_input = (
+        isinstance(projection, dict)
+        and projection.get("source_content") == "experimental_projection"
+    )
+    context = {
+        key: recovery[key]
+        for key in (
+            "table_key",
+            "b0_native_pointer",
+            "selected_parser",
+            "selected_native_pointer",
+            "header_state",
+            "header_is_original",
+            "bbox_pdf",
+            "coordinate_system",
+        )
+        if key in recovery
+    }
+    context["projection_input"] = projection_input
+    unconfirmed = recovery.get("header_is_original") is not True
+    return replace(
+        block,
+        native_context=block.native_context | {"table_recovery": context},
+        risk=block.risk
+        + ("table_recovery_unverified",)
+        + (("continuation_unverified",) if unconfirmed and not block.continues_prev else ()),
+    )
+
+
 def read_artifact(data: bytes, max_pages: int, max_blocks: int) -> ParsedArtifact:
     try:
         root = json.loads(
@@ -159,6 +211,7 @@ def read_artifact(data: bytes, max_pages: int, max_blocks: int) -> ParsedArtifac
     if len(claims) > 1:
         raise IraError("source_mismatch")
 
+    recoveries = _recoveries(root["extensions"])
     pages: list[tuple[int, tuple[NativeBlock, ...]]] = []
     seen: set[int] = set()
     block_count = 0
@@ -173,7 +226,15 @@ def read_artifact(data: bytes, max_pages: int, max_blocks: int) -> ParsedArtifac
         if block_count > max_blocks:
             raise IraError("resource_limit")
         blocks = tuple(_block(b, f"/pages/{i}/blocks/{j}") for j, b in enumerate(page["blocks"]))
+        blocks = tuple(
+            _attach_recovery(block, recoveries.pop(block.pointer))
+            if block.pointer in recoveries
+            else block
+            for block in blocks
+        )
         pages.append((index, blocks))
+    if recoveries:
+        raise IraError("invalid_location")
     config = producer.get("config", metadata.get("parser_config"))
     return ParsedArtifact(
         version, config, tuple(pages), root["is_full_document"], next(iter(claims), None)

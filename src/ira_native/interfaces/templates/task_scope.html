@@ -1,0 +1,88 @@
+{% from 'components.html' import csrf_field, evidence_path %}
+{% macro requirement_link(ref) %}
+  {% set candidate = requirements[ref] %}
+  <a href="{{ evidence_path(candidate.evidence_id, draft.draft_id) }}">{{ source_labels.get(candidate.parse_run_id, '规格') }} · 物理第 {{ candidate.physical_page }} 页</a>
+  <span>{{ candidate.equipment_class or '未知类别' }} {{ candidate.requirement_slot or candidate.model or '' }} {{ candidate.property or '' }}</span>
+  {% if candidate.expr %}<span> · {{ candidate.expr }} {{ candidate.unit or '' }}</span>{% endif %}
+{% endmacro %}
+
+<details class="panel task-scope" open>
+  <summary>本次任务范围</summary>
+  {% if scope.as_of %}<p>适用日期 {{ scope.as_of }}</p>{% endif %}
+  <div class="columns">
+    <ul aria-label="所选规格">
+    {% for id, label in source_ranges.items() %}
+      <li data-task-source="{{ id }}">{{ source_labels.get(id, '规格') }} · {{ role_labels.get(scope.roles.get(id), scope.roles.get(id)) }} · 物理页 {{ label }}</li>
+    {% endfor %}
+    </ul>
+    <ul aria-label="所选清单">
+    {% for id, label in sheet_ranges.items() %}
+      <li data-task-sheet="{{ id }}">{{ sheet_labels.get(id, '清单工作表') }} · 原始行 {{ label }}</li>
+    {% endfor %}
+    </ul>
+  </div>
+</details>
+
+<section class="panel task-scope" aria-labelledby="version-heading">
+  <h2 id="version-heading">版本、冲突与阻塞</h2>
+  {% set relation_states = {'unresolved': '待确定', 'declared': '已登记', 'supported': '待人工核对', 'confirmed': '已人工确认'} %}
+  {% if version_saved %}<p class="saved-message" role="status" tabindex="-1" data-restore-focus>版本关系核验记录已保存。可以按当前记录计算。</p>{% endif %}
+  {% if not requirements %}<p class="notice">在所选物理页内未提取到要求候选。<code>NO_REQUIREMENT_OBSERVED</code></p>{% endif %}
+  {% if draft.blockers %}<ul aria-label="任务阻塞">{% for code in draft.blockers %}<li><code>{{ code }}</code></li>{% endfor %}</ul>{% endif %}
+  {% for relation in draft.version_relations %}
+  <details class="candidate" data-version-state="{{ relation.state }}">
+    <summary>版本关系 · {{ relation_states.get(relation.state, relation.state) }}</summary>
+    <ul>
+      <li>先前要求 {{ requirement_link(relation.earlier_requirement_id) }}</li>
+      <li>后续要求 {{ requirement_link(relation.later_requirement_id) }}</li>
+    </ul>
+    {% if relation.blockers %}<ul>{% for code in relation.blockers %}<li><code>{{ code }}</code></li>{% endfor %}</ul>{% endif %}
+    {% for id in relation.evidence_ids %}<p><a href="{{ evidence_path(id, draft.draft_id) }}" target="_blank" rel="noopener">打开关系依据 {{ loop.index }}（新标签页）</a></p>{% endfor %}
+    {% if relation.evidence_ids and not relation.blockers and relation.state in ('supported', 'confirmed', 'unresolved') %}
+    <form action="/workbench/drafts/{{ draft.draft_id }}/version-reviews" method="post">
+      {{ csrf_field(csrf) }}
+      <input type="hidden" name="later" value="{{ relation.later_requirement_id }}">
+      <input type="hidden" name="earlier" value="{{ relation.earlier_requirement_id }}">
+      <input type="hidden" name="snapshot" value="{{ relation.snapshot_id }}">
+      <input type="hidden" name="review_token" value="{{ relation.review_token }}">
+      <label>关系依据 <select name="evidence" required><option value="">选择已经核对的依据</option>{% for id in relation.evidence_ids %}<option value="{{ id }}">关系依据 {{ loop.index }}</option>{% endfor %}</select></label>
+      <label>核验决定 <select name="decision" required><option value="">选择核验决定</option><option value="confirmed">确认替代关系</option><option value="rejected">否决替代关系</option></select></label>
+      <label>操作者标识 <input name="reviewer" maxlength="120" required></label>
+      <label>核验理由 <textarea name="note" maxlength="2000" required></textarea></label>
+      <label class="check"><input type="checkbox" name="attest" required> 我已检查原文、适用范围和版本关系</label>
+      <button type="submit">保存版本核验</button>
+    </form>
+    {% endif %}
+  </details>
+  {% endfor %}
+  {% if unresolved %}
+  <p class="notice">部分要求的适用版本尚待核对。<code>REVISION_RELATION_UNRESOLVED</code></p>
+  {% endif %}
+  {% if conflicts %}
+  <details class="candidate">
+    <summary>待核对的跨资料冲突</summary>
+    <ul>
+      {% for ref, other in conflicts %}
+      <li data-revision-conflict="{{ ref }}">{{ requirement_link(ref) }}
+        <ul><li>{{ requirement_link(other) }}</li></ul>
+      </li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% elif requirements and not unresolved and not draft.version_relations and not draft.blockers %}
+  <p>当前范围未发现待核对的版本冲突。</p>
+  {% endif %}
+  {% if draft.version_review_history %}
+  <details class="raw-details">
+    <summary>版本核验记录 · {{ draft.version_review_history | length }} 条</summary>
+    <ol class="history">
+    {% for event in draft.version_review_history | reverse %}
+      <li><strong>{{ event.reviewer }} · {{ '确认替代关系' if event.decision == 'confirmed' else '否决替代关系' }}</strong>
+        <p>{{ event.note }}</p><time>{{ event.time }}</time>
+        <a href="{{ evidence_path(event.evidence_id, draft.draft_id) }}">打开当时采用的依据</a>
+      </li>
+    {% endfor %}
+    </ol>
+  </details>
+  {% endif %}
+</section>

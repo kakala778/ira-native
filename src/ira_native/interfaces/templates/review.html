@@ -1,82 +1,157 @@
 {% extends 'base.html' %}
-{% from 'components.html' import csrf_field, original, raw_fields, fact %}
+{% from 'components.html' import csrf_field, original, raw_fields, fact, task_tabs, comparison, evidence_toggle %}
 {% block title %}核验审查{% endblock %}
+{% block task_navigation %}{{ task_tabs(run.draft_id, run.run_id, 'agent' if show_agent else 'results', selected.finding_id if selected else '', multi_source) }}{% endblock %}
 {% block content %}
-{% set outcomes = {'issue':'待核实问题','no_issue':'规则满足','informational':'信息性差异','review_required':'待复核','blocked':'无法核验'} %}
-<div class="page-heading">
-  <div><h1>核验审查</h1><p>{{ run.findings | length }} 条结果 · 规则 {{ run.ruleset_version }}</p></div>
+<div class="page-heading"><div><h1>{{ 'Agent 补查' if show_agent else '核验审查' }}</h1>{% if not show_agent %}<p>{{ run.findings | length }} 条核验事项</p>{% endif %}</div>
   <div class="action-row">
-    <a class="button secondary" href="/workbench/runs/{{ run.run_id }}/export.json">导出 JSON</a>
-    <a class="button secondary" href="/workbench/runs/{{ run.run_id }}/export.csv">导出 CSV</a>
+    {% if selected and not show_agent %}{{ evidence_toggle(show_evidence) }}{% endif %}
+    <a class="button secondary" href="/workbench/runs/{{ run.run_id }}/report">查看报告</a>
   </div>
 </div>
 {% if run.status == 'stale' %}
-<div class="notice" role="status">历史结果不可用于当前核验。<code>{{ run.stale_reason }}</code></div>
+<div class="notice" role="status">历史结果已失效。请返回草案重新核对并计算。 <details><summary>失效详情</summary><code>{{ run.stale_reason }}</code></details></div>
 {% endif %}
-<div class="review-layout">
-  <aside class="panel findings-panel">
-    <h2>核验结果</h2>
-    <ul class="findings-list">
-    {% for finding in run.findings %}
-    <li>
-      <a href="?finding_id={{ finding.finding_id }}" {% if selected and selected.finding_id == finding.finding_id %}aria-current="true"{% endif %}>
-        <strong>{{ finding.requirement.equipment_class or '未知设备' }} · {{ finding.requirement.config_variant or '未知配置' }}</strong>
-        <span class="muted">{{ finding.requirement.scope or '未知工程范围' }}</span>
+{% if show_agent %}
+<section class="agent-compose agent-workspace" aria-label="补查工作区">
+  <div class="agent-transcript">
+  {% if selected %}<p class="agent-context">当前事项 <strong>{{ selected.requirement.equipment_class or '未知设备' }} · {{ selected.requirement.config_variant or '未知配置' }}</strong> · <a href="?panel=agent">按任务缺口补查</a></p>{% endif %}
+  {% if run.status == 'stale' %}
+  <p>重算后可以对当前结果补查。历史补查记录仍可查看。</p>
+  {% elif not run.agent_history %}
+  <p>可以问某条要求的出处、适用条件或当前核验缺少什么证据。</p>
+  {% endif %}
+  {% if run.agent_history %}
+  <h2>补查记录</h2>
+  <ul class="search-results">
+    {% for task in run.agent_history | reverse if task.task_id %}
+    <li><a href="/workbench/runs/{{ run.run_id }}/agent-tasks/{{ task.task_id }}">{{ task.goal if task.goal else '查看补查记录' }}</a>
+      <span class="muted"> · {{ {'running':'运行中','blocked':'未完成','cancelled':'已取消','abandoned':'会话已结束','completed':'已结束'}.get(task.task_state, '查看状态') }}</span></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  </div>
+  {% if run.status != 'stale' %}
+  <form class="agent-composer" action="/workbench/runs/{{ run.run_id }}/investigate" method="post">
+    {{ csrf_field(csrf) }}
+    {% if selected %}<input type="hidden" name="finding_id" value="{{ selected.finding_id }}">{% endif %}
+    <label>补查目标 <textarea name="goal" maxlength="256" rows="3" placeholder="例如：查找安装条件的原文。留空将按当前证据缺口补查。"></textarea></label>
+    <div class="composer-actions">
+      <details><summary>补查设置</summary><label class="check"><input type="checkbox" name="allow_reverification">允许请求一次确定性重算</label></details>
+      <button type="submit">补查证据缺口</button>
+    </div>
+  </form>
+  {% endif %}
+</section>
+{% else %}
+{% set list_query = 'status=' ~ filter_status ~ '&page=' ~ page_number %}
+<div class="review-workspace {% if selected %}with-selection{% endif %}">
+  <section class="checklist" aria-labelledby="checklist-heading">
+    <div class="list-header">
+      <h2 id="checklist-heading">核验清单</h2>
+      <form action="{{ request.url.path }}" method="get" class="filter-form">
+        <input type="hidden" name="view" value="list">
+        <label>状态 <select name="status"><option value="">全部</option>{% for key, label in outcomes.items() %}<option value="{{ key }}" {% if key == filter_status %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        <button class="secondary" type="submit">筛选</button>
+      </form>
+    </div>
+    <ul class="checklist-rows">
+    {% for finding in listed %}
+      <li><a href="?{{ list_query }}&amp;finding_id={{ finding.finding_id }}" {% if selected and selected.finding_id == finding.finding_id %}aria-current="true"{% endif %}>
+        <span><strong>{{ finding.requirement.equipment_class or '未知设备' }} · {{ finding.requirement.config_variant or '未知配置' }}</strong><small>{{ finding.requirement.scope or '工程范围待核对' }}</small></span>
         <span class="outcome outcome-{{ finding.disposition }}">{{ outcomes.get(finding.disposition, finding.disposition) }}</span>
-      </a>
-    </li>
-    {% else %}<li class="muted">未生成可供审查的核验结果。</li>{% endfor %}
+      </a></li>
+    {% else %}<li class="empty-row">当前筛选下没有事项。</li>{% endfor %}
     </ul>
-    {% if run.status != 'stale' %}
-    <form action="/workbench/runs/{{ run.run_id }}/investigate" method="post">
-      {{ csrf_field(csrf) }}<button type="submit" class="secondary">补查证据缺口</button>
-    </form>
-    {% endif %}
-  </aside>
-  <section class="panel document-panel">
-    <h2>需求原文</h2>
-    {% if selected %}
-      {{ original(item, location, problem) }}
-      {{ raw_fields(selected.requirement, 'requirement') }}
-    {% else %}<p class="muted">生成核验结果后可从此查看对应的 PDF 原页。</p>{% endif %}
+    <div class="pagination" aria-label="核验清单分页">
+      <span>{{ filtered_count }} 项 · {{ page_number }} / {{ page_count }}</span>
+      {% if page_number > 1 %}<a href="?view=list&amp;status={{ filter_status }}&amp;page={{ page_number - 1 }}">上一页</a>{% endif %}
+      {% if page_number < page_count %}<a href="?view=list&amp;status={{ filter_status }}&amp;page={{ page_number + 1 }}">下一页</a>{% endif %}
+    </div>
   </section>
-  <section class="panel review-panel">
-    <h2>清单与核验</h2>
-    {% if selected %}
-      {% if selected.declaration %}{{ raw_fields(selected.declaration, 'declaration') }}
-      {% else %}<p class="muted">当前没有可比较的清单行。</p>{% endif %}
-      <h3>核验依据</h3>
+  {% if selected %}
+  <section class="selected-item" aria-labelledby="selected-heading">
+    <div class="section-line"><h2 id="selected-heading">{{ selected.requirement.equipment_class or '未知设备' }} · {{ selected.requirement.config_variant or '未知配置' }}</h2><a href="?{{ list_query }}&amp;view=list">返回清单</a></div>
+    <p class="outcome outcome-{{ selected.disposition }}">{{ outcomes.get(selected.disposition, selected.disposition) }}</p>
+    <div class="action-row item-actions">
+      {% if selected.candidate_edge %}
+      <a class="button" href="/workbench/drafts/{{ run.draft_id }}/pairs/{{ selected.candidate_edge.left_ref }}/{{ selected.candidate_edge.right_ref }}?run_id={{ run.run_id }}&amp;finding_id={{ selected.finding_id }}">返回配对核验及历史</a>
+      {% endif %}
+      {% if run.status != 'stale' and not multi_source %}<a class="button secondary" href="?finding_id={{ selected.finding_id }}&amp;panel=agent">Agent 补查</a>{% endif %}
+    </div>
+    {% if domain_finding %}
+    {% set human = {'not_performed':'待人工确认', 'incomplete':'人工核验未完成', 'confirmed':'人工核验已确认', 'stale':'既有确认已失效'} %}
+    <p><strong>{{ human[domain_finding.human_confirmation.state] }}</strong>
+      {% if domain_finding.association.status == 'machine_linked' %} · 已定位计算字段的来源{% endif %}
+    </p>
+    {% endif %}
+    {% if multi_source and selected.revision_state %}
+    <p>版本状态 <code data-revision-state="{{ selected.revision_state }}">{{ selected.revision_state }}</code> · <a href="/workbench/drafts/{{ run.draft_id }}#version-heading">查看版本与冲突依据</a></p>
+    {% endif %}
+    <h3>清单与核验</h3>
+    {% if not selected.candidate_edge %}
+    <p class="help">此项未选择清单配对。<a href="/workbench/drafts/{{ run.draft_id }}">返回草案</a>，展开此项并选择对应清单行，勾选该配对后运行核验。</p>
+    {% endif %}
+    {{ comparison(selected.requirement, selected.declaration) }}
+    {% if selected.conditional_calculation and run.status != 'stale' %}
+    <h3>条件化计算（待人工复核）</h3>
+    <p>{{ {'satisfied':'假设成立时满足要求', 'violated':'假设成立时存在差异','not_applicable':'原文明确说明不适用','undetermined':'当前依据不足，无法计算'}.get(selected.conditional_calculation.status, selected.conditional_calculation.status) }}</p>
+    {% set hints = {'CONDITIONAL_SOURCE_RELATION_UNRESOLVED':'核对题注、脚注或表头是否适用于本项。','FIELD_SUPPORT_UNKNOWN':'核对计算字段的原文来源及清单行。','REVISION_UNKNOWN':'核对两侧资料的版本与适用关系。','CONDITION_UNPROVEN':'核对两侧工况是否一致。','CONDITIONAL_PAIR_NOT_SELECTED':'返回草案选择对应的清单行。','COUNT_BASIS_NOT_COMPARABLE':'核对两侧是否按相同口径计数。'} %}
+    {% if selected.conditional_calculation.reason_code in hints %}<p class="help">{{ hints[selected.conditional_calculation.reason_code] }}</p>{% endif %}
+    {% if selected.conditional_calculation.assumptions %}<p class="help">假设对应关系、版本、要求适用性和提取值均正确。</p>{% endif %}
+    {% endif %}
+    <details class="raw-details"><summary>正式结果与核验依据</summary>
       <dl class="facts">
-        {{ fact('处置', outcomes.get(selected.disposition, selected.disposition)) }}
+        {{ fact('正式核验状态', selected.formal_status) }}
+        {% if run.status == 'stale' %}{{ fact('历史正式结果', selected.historical_formal_status) }}{% endif %}
         {{ fact('规则结果', selected.evaluation.requirement_evaluation) }}
         {{ fact('原因', selected.evaluation.reason_code) }}
+        {% if selected.conditional_calculation %}{{ fact('历史条件化计算原因' if run.status == 'stale' else '条件化计算原因', selected.conditional_calculation.reason_code) }}{% endif %}
         {{ fact('来源前提', selected.preconditions.source_assumption) }}
-        {{ fact('PDF 与解析配对', run.binding_state) }}
-        {{ fact('字段核验', run.field_verification_state) }}
+        {{ fact('PDF 与解析配对', source_binding) }}
+        {{ fact('字段核验', selected.trust_gates.field_state if multi_source and selected.trust_gates and selected.trust_gates.field_state else run.field_verification_state) }}
         {{ fact('版本前提', selected.preconditions.revision_relation) }}
+        {% if selected.trust_gates %}
+        {{ fact('来源记录', selected.trust_gates.source_review) }}
+        {{ fact('实体绑定记录', selected.trust_gates.binding_review) }}
+        {{ fact('适用性记录', selected.trust_gates.applicability_review) }}
+        {% endif %}
       </dl>
-      <h3>人工审查</h3>
+      {% if selected.trust_gates and selected.trust_gates.blockers %}<ul>{% for reason in selected.trust_gates.blockers %}<li><code>{{ reason }}</code></li>{% endfor %}</ul>{% endif %}
+    </details>
+    <details class="raw-details"><summary>逐字段来源与原值</summary>
+      <h3>技术规格</h3>{{ raw_fields(selected.requirement, 'requirement') }}
+      {% if selected.declaration %}<h3>设备清单</h3>{{ raw_fields(selected.declaration, 'declaration') }}{% endif %}
+    </details>
+    {% if selected.verification_snapshot %}
+    <details class="raw-details"><summary>核验输入快照及采用的核验记录</summary><pre>{{ selected.verification_snapshot | tojson(indent=2) }}</pre></details>
+    {% endif %}
+    <details class="raw-details" {% if selected.review_history %}open{% endif %}><summary>人工审查{% if selected.review_history %} · {{ selected.review_history | length }} 条记录{% endif %}</summary>
       {% if run.status != 'stale' %}
       <form action="/workbench/runs/{{ run.run_id }}/findings/{{ selected.finding_id }}/review" method="post">
         {{ csrf_field(csrf) }}
         <label>审查人 <input name="reviewer" maxlength="80" required></label>
-        <label>审查决定
-          <select name="decision" required><option value="">选择审查决定</option>{% for key, label in decisions %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select>
-        </label>
+        <label>审查决定 <select name="decision" required><option value="">选择审查决定</option>{% for key, label in decisions %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></label>
         <label>说明 <textarea name="note" rows="3" maxlength="2000" required></textarea></label>
         <button type="submit">保存审查</button>
       </form>
       {% endif %}
-      {% if selected.review_history %}
-        <ol class="history" aria-label="审查历史">
-        {% for event in selected.review_history | reverse %}
-          <li><strong>{{ event.reviewer }} · {{ dict(decisions).get(event.decision, event.decision) }}</strong>
-          <p>{{ event.note }}</p><time>{{ event.time }}</time></li>
-        {% endfor %}
-        </ol>
-      {% else %}<p class="muted">暂无人工审查记录。</p>{% endif %}
-    {% endif %}
+      <ol class="history" aria-label="审查历史">
+        {% for event in selected.review_history | reverse %}<li><strong>{{ event.reviewer }} · {{ dict(decisions).get(event.decision, event.decision) }}</strong><p>{{ event.note }}</p><time>{{ event.time }}</time></li>
+        {% else %}<li>暂无人工审查记录。</li>{% endfor %}
+      </ol>
+    </details>
   </section>
+  {% endif %}
 </div>
+{% endif %}
 {% endblock %}
-{% block scripts %}<script type="module" src="/workbench/static/pdf-viewer.mjs"></script>{% endblock %}
+{% block evidence_panel %}
+{% if selected and not show_agent %}
+<aside id="evidence-inspector" class="evidence-inspector" data-evidence-panel aria-label="原文证据" {% if not show_evidence %}hidden{% endif %}>
+  <div class="inspector-heading"><h2>原文证据</h2><button type="button" class="secondary" data-evidence-close aria-label="关闭证据栏">×</button></div>
+  <div class="inspector-content">{{ original(item, location, problem, source_label, scope_draft) }}</div>
+</aside>
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if not scope_draft %}<script type="module" src="/workbench/static/pdf-viewer.mjs"></script>{% endif %}{% endblock %}

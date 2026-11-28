@@ -1,11 +1,27 @@
 """Verification workflow tables for migration 0002."""
 
-from sqlalchemy import JSON, Column, ForeignKey, Integer, LargeBinary, MetaData, String, Table
+from sqlalchemy import (
+    JSON,
+    Column,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    MetaData,
+    String,
+    Table,
+    UniqueConstraint,
+)
 
 from ira_native.adapters.schema_v1 import metadata as registry_metadata
 
 metadata = MetaData()
 registry_metadata.tables["parse_runs"].to_metadata(metadata)
+specification_names = Table(
+    "workbench_specification_names",
+    metadata,
+    Column("parse_run_id", ForeignKey("parse_runs.parse_run_id"), primary_key=True),
+    Column("name", String(255), nullable=False),
+)
 sheets = Table(
     "spreadsheet_assets",
     metadata,
@@ -50,3 +66,15 @@ agent_runs = Table(
     Column("record", JSON, nullable=False),
 )
 TABLES = [sheets, sheet_imports, drafts, checks, reviews, agent_runs]
+
+human_reviews = Table(
+    "human_verification_records",
+    metadata,
+    Column("sequence", Integer, primary_key=True),
+    Column("draft_id", ForeignKey("verification_drafts.draft_id"), nullable=False),
+    Column("left_ref", String(64), nullable=False),
+    Column("right_ref", String(64), nullable=False),
+    Column("previous_review_id", String(32), nullable=False),
+    Column("record", JSON, nullable=False),
+    UniqueConstraint("draft_id", "left_ref", "right_ref", "previous_review_id"),
+)

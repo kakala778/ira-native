@@ -29,6 +29,7 @@ function viewer(container) {
   const total = container.querySelector("[data-total]");
   const previous = container.querySelector("[data-prev]");
   const next = container.querySelector("[data-next]");
+  const zoom = container.querySelector("[data-zoom]");
   const originalPage = Number(container.dataset.page);
   const evidenceBox = JSON.parse(container.dataset.bbox);
   let pageNumber = originalPage;
@@ -37,6 +38,7 @@ function viewer(container) {
   let renderTask;
   let priorWidth = 0;
   let pdf;
+  let rendered = false;
 
   function openDocument() {
     pdf ??= moduleForPdf().then((pdfjs) => pdfjs.getDocument({
@@ -56,6 +58,7 @@ function viewer(container) {
     container.dataset.renderState = state;
     container.dataset.precision = precision;
     status.textContent = message;
+    if (zoom && state !== "loading") zoom.disabled = state !== "canvas";
   }
 
   function buttons() {
@@ -79,10 +82,11 @@ function viewer(container) {
       const page = await file.getPage(number);
       if (id !== revision) return;
       const unscaled = page.getViewport({ scale: 1 });
-      const scale = Math.min((stage.clientWidth - 28) / unscaled.width, 1.7, 1400 / unscaled.height);
+      const fitScale = Math.min((stage.clientWidth - 28) / unscaled.width, 1.7, 1400 / unscaled.height);
+      const scale = !zoom || zoom.value === "fit" ? fitScale : Number(zoom.value);
       if (scale <= 0) throw new Error("No preview area");
       const viewport = page.getViewport({ scale });
-      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      const ratio = Math.min(window.devicePixelRatio || 1, 2, 4096 / Math.max(viewport.width, viewport.height));
       const sheet = document.createElement("div");
       sheet.className = "pdf-sheet";
       const canvas = document.createElement("canvas");
@@ -105,6 +109,7 @@ function viewer(container) {
         Array.isArray(evidenceBox) && evidenceBox.length === 4 && evidenceBox.every(Number.isFinite);
       if (anchored) drawHighlight(sheet, viewport, evidenceBox);
       stage.replaceChildren(sheet);
+      rendered = true;
       renderStatus("canvas", "物理第 " + number + " 页 · PDF.js 渲染完成 · " +
         (anchored ? "已显示块级高亮" : "页级预览"), anchored ? "block" : "page");
       buttons();
@@ -134,20 +139,23 @@ function viewer(container) {
   previous.addEventListener("click", () => {
     if (pageNumber > 1) {
       pageNumber -= 1;
+      stage.scrollTo(0, 0);
       void showPage();
     }
   });
   next.addEventListener("click", () => {
     if (pageNumber < pageCount) {
       pageNumber += 1;
+      stage.scrollTo(0, 0);
       void showPage();
     }
   });
+  zoom?.addEventListener("change", () => void showPage());
   const observer = new ResizeObserver(() => {
     const width = stage.clientWidth;
     if (width !== priorWidth && width > 28) {
       priorWidth = width;
-      void showPage();
+      if (!rendered || !zoom || zoom.value === "fit") void showPage();
     }
   });
   observer.observe(stage);

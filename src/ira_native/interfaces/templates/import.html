@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% from 'components.html' import csrf_field %}
+{% from 'input_forms.html' import pdf_upload, sheet_upload %}
+{% block title %}新建核验任务{% endblock %}
+{% block content %}
+<div class="import-view">
+  <div class="page-heading"><div><h1>新建核验任务</h1></div><div class="action-row"><a href="/workbench/tasks/new">多资料核验</a><a href="/">返回任务</a></div></div>
+  <ol class="steps" aria-label="新建任务进度">
+    <li {% if step == 1 %}aria-current="step"{% endif %}><span>1</span>{% if step > 1 %}<a href="/workbench/import?step=1&amp;parse_run_id={{ parse_run_id }}&amp;import_id={{ import_id }}">技术规格</a>{% else %}技术规格{% endif %}</li>
+    <li {% if step == 2 %}aria-current="step"{% endif %}><span>2</span>{% if step > 2 %}<a href="/workbench/import?step=2&amp;parse_run_id={{ parse_run_id }}&amp;import_id={{ import_id }}">设备清单</a>{% else %}设备清单{% endif %}</li>
+    <li {% if step == 3 %}aria-current="step"{% endif %}><span>3</span>创建任务</li>
+  </ol>
+  <section class="import-step" aria-labelledby="import-heading">
+  {% if step == 1 %}
+    <h2 id="import-heading">选择技术规格</h2>
+    {% if choices.specifications %}
+    <form action="/workbench/import" method="get">
+      <input type="hidden" name="import_id" value="{{ import_id }}">
+      <label>已登记规格 <select name="parse_run_id" required><option value="">请选择</option>
+      {% for id, name in choices.specifications %}<option value="{{ id }}" {% if id == parse_run_id %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></label>
+      <button type="submit">下一步</button>
+    </form>
+    {% endif %}
+    {% if uploads %}
+    <details class="upload-option" {% if not choices.specifications %}open{% endif %}>
+      <summary>上传规格 PDF 和解析文件</summary>
+      {{ pdf_upload(csrf, import_id) }}
+    </details>
+    {% else %}
+    <p class="notice">网页上传已关闭。{% if choices.specifications %}请选择已登记规格。{% else %}当前没有可用规格，请先由本机操作者登记资料。{% endif %}</p>
+    {% endif %}
+  {% elif step == 2 %}
+    <h2 id="import-heading">选择设备清单</h2>
+    <p class="import-context">已选规格 <strong>{{ summary.specification.name }}</strong></p>
+    {% if choices.spreadsheets %}
+    <form action="/workbench/import" method="get">
+      <input type="hidden" name="parse_run_id" value="{{ parse_run_id }}">
+      <label>已登记清单 <select name="import_id" required><option value="">请选择</option>
+      {% for id, name in choices.spreadsheets %}<option value="{{ id }}" {% if id == import_id %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></label>
+      <button type="submit">下一步</button>
+    </form>
+    {% endif %}
+    {% if uploads %}
+    <details class="upload-option" {% if not choices.spreadsheets %}open{% endif %}>
+      <summary>上传设备清单</summary>
+      {{ sheet_upload(csrf, columns, parse_run_id) }}
+    </details>
+    {% else %}
+    <p class="notice">网页上传已关闭。{% if not choices.spreadsheets %}当前没有可用清单，请先由本机操作者登记。{% endif %}</p>
+    {% endif %}
+  {% else %}
+    <h2 id="import-heading">确认资料并创建任务</h2>
+    <dl class="facts">
+      <div><dt>技术规格</dt><dd>{{ summary.specification.name }} · {{ summary.specification.page_count }} 页</dd></div>
+      <div><dt>设备清单</dt><dd>{{ summary.spreadsheet.name }} · {{ summary.spreadsheet.row_count }} 行{% if summary.spreadsheet.risk_count %} · {{ summary.spreadsheet.risk_count }} 行需核对源数据{% endif %}</dd></div>
+    </dl>
+    <details><summary>查看字段映射</summary><dl class="facts">{% for field, column in summary.spreadsheet.column_mapping.items() %}<div><dt>{{ field }}</dt><dd>{{ column }}</dd></div>{% endfor %}</dl></details>
+    <form action="/workbench/drafts" method="post">
+      {{ csrf_field(csrf) }}
+      <input type="hidden" name="parse_run_id" value="{{ parse_run_id }}">
+      <input type="hidden" name="import_id" value="{{ import_id }}">
+      <label>任务名称 <input name="task_name" maxlength="100" placeholder="留空时使用资料名称"></label>
+      <details><summary>限定核验页范围</summary><label>PDF 物理页 <input name="pages" maxlength="20" placeholder="例如 2-4，留空则使用全文"></label></details>
+      <button type="submit">查看候选项</button>
+    </form>
+  {% endif %}
+  </section>
+</div>
+{% endblock %}

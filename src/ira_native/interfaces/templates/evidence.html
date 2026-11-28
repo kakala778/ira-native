@@ -2,10 +2,12 @@
 {% from 'components.html' import original %}
 {% block title %}原始证据{% endblock %}
 {% block content %}
+{% if agent_return %}<p><a href="{{ agent_return }}">返回补查任务</a></p>{% endif %}
 <div class="page-heading">
   <div><h1>原始证据</h1>{% if item %}<p>PDF 物理第 {{ item.physical_page }} 页</p>{% endif %}</div>
-  <a class="button secondary" href="/workbench/search">证据检索</a>
+  {% if scope_draft %}<a class="button secondary" href="/workbench/drafts/{{ scope_draft }}">返回草案</a>
+  {% else %}<a class="button secondary" href="/workbench/search">证据检索</a>{% endif %}
 </div>
-<section class="panel evidence-view">{{ original(item, location, problem) }}</section>
+<section class="panel evidence-view">{{ original(item, location, problem, source_label, scope_draft) }}</section>
 {% endblock %}
-{% block scripts %}<script type="module" src="/workbench/static/pdf-viewer.mjs"></script>{% endblock %}
+{% block scripts %}{% if not scope_draft %}<script type="module" src="/workbench/static/pdf-viewer.mjs"></script>{% endif %}{% endblock %}

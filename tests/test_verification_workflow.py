@@ -63,6 +63,8 @@ def test_synthetic_full_deterministic_flow(tmp_path):
         assert draft["requirements"][0]["field_evidence"][0]["evidence_id"]
         initial = workflow.verify(draft["draft_id"], [], "示例审查")
         assert all(f["disposition"] != "issue" for f in initial["findings"])
+        assert draft["candidate_edges"]
+        assert all(f["declaration"] is None for f in initial["findings"])
         confirmed = [
             {
                 "requirement_id": requirement["candidate_id"],
@@ -218,13 +220,100 @@ def test_agent_recomputation_preserves_the_run_and_appends_audit(tmp_path, agent
                 ]
             )
 
-        agent = asyncio.run(workflow.investigate(run["run_id"], model=FunctionModel(model)))
+        agent = asyncio.run(
+            workflow.investigate(
+                run["run_id"],
+                model=FunctionModel(model),
+                allow_reverification=agent_requests_recheck,
+            )
+        )
         assert agent["status"] == "proposals_available"
         assert agent["reverification_requested"] is agent_requests_recheck
-        assert agent["reverification_performed"]
-        assert agent["reverification"]["trigger"] == (
-            "agent_tool" if agent_requests_recheck else "workflow"
-        )
+        assert agent["reverification_performed"] is agent_requests_recheck
+        if agent_requests_recheck:
+            assert agent["reverification"]["trigger"] == "agent_tool"
+        else:
+            assert "reverification" not in agent
         current = workflow.get_run(run["run_id"])
         assert current["findings"] == run["findings"]
         assert current["agent_history"][0]["evidence_ids"] == agent["evidence_ids"]
+
+
+def test_offline_cli_separates_two_scenarios_and_filters_physical_pages(tmp_path):
+    pdf, parsed, sheet = generate(tmp_path / "inputs")
+    details = tmp_path / "details.json"
+    confirmed = tmp_path / "confirmations.json"
+    shared = [
+        "verify",
+        "offline",
+        "--pdf",
+        str(pdf),
+        "--parsed",
+        str(parsed),
+        "--spreadsheet",
+        str(sheet),
+        "--database",
+        str(tmp_path / "offline.sqlite"),
+    ]
+    runner = CliRunner()
+    empty = runner.invoke(app, shared + ["--pages", "4", "--local-details", str(details)])
+    assert empty.exit_code == 0, empty.output
+    assert json.loads(empty.output)["conditional_reasons"] == {"CONDITIONAL_PAIR_NOT_SELECTED": 1}
+    report = runner.invoke(app, shared + ["--local-details", str(tmp_path / "all.json")])
+    assert report.exit_code == 0, report.output
+    draft = json.loads((tmp_path / "all.json").read_text(encoding="utf-8"))["draft"]
+    confirmed.write_text(
+        json.dumps(
+            [
+                {
+                    "requirement_id": edge["left_ref"],
+                    "declaration_id": edge["right_ref"],
+                    "same_version": True,
+                    "fields_checked": True,
+                }
+                for edge in draft["candidate_edges"]
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, shared + ["--confirmations", str(confirmed)])
+    assert result.exit_code == 0, result.output
+    counts = json.loads(result.output)
+    assert counts["conditional_statuses"] == {"satisfied": 1, "violated": 1, "undetermined": 2}
+    assert counts["workflow_dispositions"] == {"review_required": 4}
+    assert counts["system_confirmed"] == 0
+    assert counts["field_verification_state"] == "not_verified"
+    assert "SYN-OLT-A" not in result.output
+    assert draft["draft_id"] not in result.output
+
+
+def test_conditional_preview_refuses_an_unknown_condition(tmp_path):
+    pdf, parsed, sheet = generate(tmp_path / "inputs")
+    simulated = json.loads(parsed.read_text(encoding="utf-8"))
+    simulated["pages"][0]["blocks"][0]["content"] += "\ncondition: —"
+    parsed.write_text(json.dumps(simulated), encoding="utf-8")
+    with EvidenceService(Settings(tmp_path / "db.sqlite", (pdf.parent,))) as service:
+        workflow = VerificationWorkflow(service)
+        source = service.ingest_pair(pdf, parsed)
+        imported = workflow.ingest_spreadsheet_path(sheet, {})
+        draft = workflow.prepare(source.parse_run.parse_run_id, imported["import_id"], pages=(1, 1))
+        (edge,) = draft["candidate_edges"]
+        run = workflow.verify(
+            draft["draft_id"],
+            [
+                {
+                    "requirement_id": edge["left_ref"],
+                    "declaration_id": edge["right_ref"],
+                    "fields_checked": True,
+                    "same_version": True,
+                }
+            ],
+            "Synthetic",
+            conditional_preview=True,
+        )
+    (finding,) = run["findings"]
+    assert finding["disposition"] == "review_required"
+    assert finding["conditional_calculation"] == {
+        "status": "undetermined",
+        "reason_code": "CONDITION_UNKNOWN",
+    }

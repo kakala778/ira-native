@@ -16,6 +16,12 @@ ERRORS: dict[str, tuple[int, str]] = {
         409,
         "The historical run lacks an auditable field verification.",
     ),
+    "verification_stale": (
+        409,
+        "The verification inputs or manual records changed. Open a fresh review.",
+    ),
+    "selection_changed": (409, "配对选择已有更新。请重新打开当前草案或核验结果后再操作。"),
+    "pair_not_selected": (409, "该配对未纳入当前核验。请返回草案选择对应清单行，再运行核验。"),
     "source_unreadable": (422, "The source could not be read."),
     "parse_run_not_found": (404, "The registered parse run could not be found."),
     "no_evidence_found": (404, "No matching evidence was found in the searched scope."),

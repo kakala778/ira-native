@@ -11,9 +11,11 @@ from typing import Literal, TypedDict
 from pint import UnitRegistry
 from pydantic import BaseModel, ValidationError
 
+from ira_native.domain.candidate_matching import port_type
 from ira_native.domain.models import ANNOTATION_RISK
 
 RULESET_VERSION = "gpon/1"
+PART_RULESET_VERSION = "gpon/2"
 Evaluation = Literal["satisfied", "violated", "not_applicable", "undetermined"]
 Disposition = Literal["no_issue", "issue", "informational", "review_required", "blocked"]
 Relation = Literal["equivalent", "compatible", "contradictory", "not_comparable", "unknown"]
@@ -36,6 +38,7 @@ class Term(BaseModel):
     value_role: str
     property: str
     model: str | None = None
+    part_number: str | None = None
     config_variant: str | None = None
     requirement_slot: str | None = None
     site_group: str | None = None
@@ -199,6 +202,8 @@ def _comparison_gap(
         )
     if left.property != right.property:
         return "PROPERTY_DIFFERENCE"
+    if left.part_number != right.part_number:
+        return "PART_IDENTITY_UNPROVEN"
     if not left.scope or not right.scope:
         return "SCOPE_UNKNOWN"
     if left.scope != right.scope:
@@ -208,7 +213,7 @@ def _comparison_gap(
     if (left.condition or comparing) and left.condition != right.condition:
         return "CONDITION_MISMATCH" if left.condition and right.condition else "CONDITION_UNKNOWN"
     if (
-        left.property in COUNTS
+        (left.property in COUNTS or port_type(left.property))
         or left.property == "interface_config"
         or left.count_basis is not None
         or right.count_basis is not None
@@ -235,7 +240,7 @@ def _registry() -> UnitRegistry:
 
 
 def _converter(left: Term, right: Term) -> Callable[[Decimal], Decimal]:
-    if left.property in COUNTS:
+    if left.property in COUNTS or port_type(left.property):
         if left.unit not in COUNT_UNITS or left.unit != right.unit:
             raise RuleInputError("COUNT_UNIT_SEMANTICS_UNKNOWN")
         return lambda value: value
@@ -320,7 +325,7 @@ def _interval(term: Term, *, scalar: bool = False) -> tuple[Interval, str]:
     if scalar and operator != "=":
         raise RuleInputError("UNSUPPORTED_EXPRESSION")
     lower, upper = interval.lower, interval.upper
-    if term.property in COUNTS:
+    if term.property in COUNTS or port_type(term.property):
         if any(v is not None and (v < 0 or v != v.to_integral_value()) for v in (lower, upper)):
             raise RuleInputError("UNSUPPORTED_EXPRESSION")
         interval = Interval(
@@ -392,6 +397,22 @@ def _value_test(left: Term, right: Term) -> tuple[bool, str]:
         scalar, _ = _interval(right, scalar=True)
         assert scalar.lower is not None
         return interval.contains(convert(scalar.lower)), operator
+
+
+def calculate_conditional(requirement: dict, declaration: dict) -> dict:
+    """Calculate paired values under stated assumptions, without a Finding decision."""
+    try:
+        left = Term.model_validate(requirement)
+        right = Term.model_validate(declaration)
+        matches, _ = _value_test(left, right)
+    except ValidationError:
+        return {"status": "undetermined", "reason_code": "INVALID_RULE_INPUT"}
+    except RuleInputError as error:
+        return {"status": "undetermined", "reason_code": str(error)}
+    return {
+        "status": "satisfied" if matches else "violated",
+        "reason_code": "CONDITIONAL_VALUE_MATCH" if matches else "CONDITIONAL_VALUE_DEVIATION",
+    }
 
 
 def _rule_reason(left: Term, right: Term, matches: bool, operator: str, facts: Facts) -> str:

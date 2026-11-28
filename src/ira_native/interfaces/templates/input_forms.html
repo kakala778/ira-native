@@ -1,0 +1,35 @@
+{% from 'components.html' import csrf_field %}
+
+{% macro pdf_upload(csrf, import_id='', task_mode='') %}
+  <form action="/workbench/inputs/pdf" method="post" enctype="multipart/form-data">
+    {{ csrf_field(csrf) }}
+    {% if task_mode %}<input type="hidden" name="task_mode" value="{{ task_mode }}">{% endif %}
+    <input type="hidden" name="import_id" value="{{ import_id }}">
+    <label>规格 PDF <input type="file" name="pdf" accept=".pdf,application/pdf" required></label>
+    <label>MinerU 解析文件（JSON） <input type="file" name="parsed" accept=".json,application/json" required></label>
+    <p class="help">登记前请确认解析文件来自所选 PDF。</p>
+    <button type="submit">登记技术规格</button>
+  </form>
+{% endmacro %}
+
+{% macro sheet_upload(csrf, columns, parse_run_id='', task_mode='') %}
+  <form action="/workbench/inputs/spreadsheet" method="post" enctype="multipart/form-data">
+    {{ csrf_field(csrf) }}
+    {% if task_mode %}<input type="hidden" name="task_mode" value="{{ task_mode }}">{% endif %}
+    <input type="hidden" name="parse_run_id" value="{{ parse_run_id }}">
+    <label>清单文件（CSV 或 XLSX） <input type="file" name="spreadsheet" accept=".csv,.xlsx" required></label>
+    <details>
+      <summary>导入设置</summary>
+      <div class="form-row">
+        <label>工作表（多工作表时填写） <input name="sheet" maxlength="31" placeholder="工作表名称"></label>
+        <label>CSV 编码 <select name="encoding"><option value="utf-8-sig">UTF-8（含 BOM）</option><option value="utf-8">UTF-8</option><option value="gb18030">GB18030</option></select></label>
+      </div>
+      <details>
+        <summary>指定表头映射</summary>
+        <p class="help">使用标准字段名时可留空。手动映射时请填写清单实际表头。</p>
+        <div class="form-row">{% for key, label in columns %}<label>{{ label }} <input name="column_{{ key }}" maxlength="256" placeholder="{{ key }}"></label>{% endfor %}</div>
+      </details>
+    </details>
+    <button type="submit">登记设备清单</button>
+  </form>
+{% endmacro %}

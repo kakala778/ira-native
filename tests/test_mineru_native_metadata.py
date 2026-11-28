@@ -17,7 +17,7 @@ def test_mineru_native_titles_and_annotations_are_retrievable(pair, tmp_path):
     parsed.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     with EvidenceService(Settings(tmp_path / "test.sqlite", (pdf.parent,))) as app:
         result = app.ingest_pair(pdf, parsed)
-        assert result.parse_run.adapter_version == "mineru-structured-content/2"
+        assert result.parse_run.adapter_version == "mineru-structured-content/3"
         (title,) = app.search_evidence("OLT", kind="paragraph_title").items
         assert title.precision == "block"
         assert title.native_context == {"level": 2}

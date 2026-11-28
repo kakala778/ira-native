@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% from 'components.html' import evidence_path, fact, task_tabs %}
+{% block title %}核验报告{% endblock %}
+{% block task_navigation %}{{ task_tabs(run.draft_id, run.run_id, 'report', multi_source=run.task_scope) }}{% endblock %}
+{% block content %}
+<section class="verification-report">
+<div class="page-heading">
+  <div><h1>核验报告</h1><p>{{ report.findings | length }} 条核验事项</p></div>
+  <div class="action-row report-actions">
+    <a class="button secondary" href="/workbench/runs/{{ report.run_id }}">返回核验</a>
+    <a class="button" href="/workbench/runs/{{ report.run_id }}/report.json">下载汇总 JSON</a>
+  </div>
+</div>
+<p class="report-actions">可通过浏览器打印此页或保存为 PDF。</p>
+{% if report.status == 'stale' %}
+<p class="notice" role="status">历史结果已失效。<code>{{ report.stale_reason }}</code></p>
+{% endif %}
+<dl class="facts">
+  {{ fact('报告状态', '历史结果已失效' if report.status == 'stale' else '当前结果') }}
+  {% for status, count in report.counts.items() %}{{ fact(outcomes.get(status, status), count) }}{% endfor %}
+</dl>
+<h2>核验事项</h2>
+{% for item in report.findings %}
+<article class="report-item">
+  <h3>{{ item.equipment_class or '设备类别待核对' }} · {{ outcomes.get(item.current_disposition, item.current_disposition) }}</h3>
+  <details data-print-open><summary>核验依据与报告明细</summary>
+  <dl class="facts">
+    {{ fact('正式状态', item.formal_status) }}
+    {{ fact('当前处置', item.current_disposition) }}
+    {% if item.historical_disposition %}{{ fact('历史处置', item.historical_disposition) }}{% endif %}
+    {% if item.historical_formal_status %}{{ fact('历史正式结果', item.historical_formal_status) }}{% endif %}
+    {{ fact('条件化计算', item.conditional_status) }}
+    {{ fact('条件化原因', item.conditional_reason) }}
+    {{ fact('规则原因', item.evaluation_reason) }}
+    {{ fact('人工复核', item.review_state) }}
+    {{ fact('原 PDF 物理页', item.source.physical_page) }}
+    {{ fact('清单原始行', item.source.declaration_row) }}
+    {{ fact('核验快照 ID', item.snapshot.id) }}
+    {{ fact('当时适用的人工记录数', item.snapshot.review_count) }}
+  </dl>
+  {% if item.trust_blockers %}<p>未通过的信任门 · {{ item.trust_blockers | join(' · ') }}</p>{% endif %}
+  {% if item.unverified_fields %}<p>未核验字段 · {{ item.unverified_fields | join(' · ') }}</p>{% endif %}
+  </details>
+  {% if item.source.evidence_id %}<a href="{{ evidence_path(item.source.evidence_id, run.draft_id if run.task_scope else '') }}">打开原页</a>{% endif %}
+  <a href="/workbench/runs/{{ report.run_id }}?finding_id={{ item.finding_id }}">查看配对与清单行</a>
+</article>
+{% else %}<p>当前运行没有核验事项。可返回草案查看候选提取诊断。</p>{% endfor %}
+{% if not run.task_scope %}
+<h2>Agent 建议与停止原因</h2>
+{% for task in report.agent_tasks %}
+<div class="report-item">
+  <p>{{ task.state or '历史任务' }} · {{ task.stop_reason or '—' }} · 工具执行 {{ task.tool_calls }} 次
+  {% if task.task_id %}<a href="/workbench/runs/{{ report.run_id }}/agent-tasks/{{ task.task_id }}">查看本机轨迹</a>{% endif %}</p>
+  {% for id in task.evidence_ids %}<a href="/workbench/evidence/{{ id }}">建议证据 {{ loop.index }}</a>{% endfor %}
+</div>
+{% else %}<p>此运行没有 Agent 任务。</p>{% endfor %}
+{% endif %}
+<details class="report-actions">
+  <summary>本机明细</summary>
+  <dl class="facts">{{ fact('运行 ID', report.run_id) }}{{ fact('规则版本', report.ruleset) }}{{ fact('字段核验', report.field_verification_state) }}</dl>
+  <p>明细含证据原值、核验说明、快照和任务记录，仅供授权本机使用。</p>
+  <a href="/workbench/runs/{{ report.run_id }}/export.json">导出本机明细 JSON</a>
+  <a href="/workbench/runs/{{ report.run_id }}/export.csv">导出本机明细 CSV</a>
+  <a href="/workbench/runs/{{ report.run_id }}/verification.json">导出版本化核验结果</a>
+</details>
+</section>
+{% endblock %}

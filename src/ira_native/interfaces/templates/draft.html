@@ -1,18 +1,26 @@
 {% extends 'base.html' %}
-{% from 'components.html' import csrf_field, raw_fields %}
+{% from 'components.html' import csrf_field, evidence_path, raw_fields, task_tabs %}
 {% block title %}核验草案{% endblock %}
+{% block task_navigation %}{{ task_tabs(draft.draft_id, multi_source=scope) }}{% endblock %}
 {% block content %}
 <div class="page-heading">
-  <div><h1>核验草案</h1><p>{{ draft.requirements | length }} 个要求候选 · {{ draft.declarations | length }} 条清单记录</p></div>
-  <a class="button secondary" href="/?parse_run_id={{ draft.parse_run_id }}&amp;import_id={{ draft.declaration_import_id }}">返回资料</a>
+  <div><h1>核验草案</h1><p>{{ draft.requirements | length }} 个要求候选 · {{ draft.declarations | length }} 条清单记录{% if draft.physical_pages %} · 物理页 {{ draft.physical_pages | join("–") }}{% endif %}</p></div>
+  {% if scope %}<a class="button secondary" href="/workbench/tasks/new">新建多资料任务</a>
+  {% else %}<a class="button secondary" href="/?parse_run_id={{ draft.parse_run_id }}&amp;import_id={{ draft.declaration_import_id }}">返回资料</a>{% endif %}
 </div>
+{% if scope %}{% include 'task_scope.html' %}{% endif %}
 <form action="/workbench/drafts/{{ draft.draft_id }}/verify" method="post" class="draft-layout">
   {{ csrf_field(csrf) }}
-  <div class="panel">
-    <h2>要求候选</h2>
+  <input type="hidden" name="selection_run" value="{{ selection_run }}">
+  <div data-local-pagination>
+    <div class="list-header">
+      <h2>要求候选</h2>
+      <label>候选状态 <select data-list-filter><option value="">全部</option><option value="matched">有清单候选</option><option value="unmatched">缺少清单候选</option></select></label>
+    </div>
     {% if diagnostics %}
-    <section id="candidate-diagnostics" aria-label="候选提取诊断">
-      <p>未找到要求候选不等于原始文档不存在相关要求。</p>
+    <p class="notice">未找到要求候选不等于原始文档不存在相关要求。</p>
+    <details id="candidate-diagnostics" aria-label="候选提取诊断">
+      <summary>候选提取诊断</summary>
       <dl>
         {% for key, title in [('evidence_total','证据块'), ('tables_seen','表格块'), ('records_seen','尝试记录'), ('records_rejected','拒绝记录'), ('candidates_emitted','产生候选')] %}
         <dt>{{ title }}</dt><dd data-diagnostic="{{ key }}">{{ diagnostics[key] }}</dd>
@@ -24,15 +32,18 @@
         <dt><code>{{ code }}</code></dt><dd data-reason="{{ code }}">{{ count }}</dd>
         {% endfor %}
       </dl>
-    </section>
+    </details>
     {% endif %}
     {% for item in draft.requirements %}
-    <section class="candidate" aria-labelledby="candidate-{{ loop.index }}">
-      <div class="section-line">
-        <h3 id="candidate-{{ loop.index }}">{{ item.equipment_class or '未知设备' }} · {{ item.config_variant or '未知配置' }}</h3>
-        <a href="/workbench/evidence/{{ item.evidence_id }}" target="_blank" rel="noopener noreferrer">打开原页</a>
-      </div>
-      {{ raw_fields(item, 'requirement') }}
+    {% set matched = matches.get(item.candidate_id, []) %}
+    {% set selected = selected_pairs.get(item.candidate_id) %}
+    <details class="candidate candidate-row" data-list-row="{{ 'matched' if matched else 'unmatched' }}">
+      <summary><strong>{{ item.equipment_class or '未知设备' }} · {{ item.config_variant or '未知配置' }}</strong><span>{{ item.scope or '范围待核对' }}</span><small>{{ matched | length }} 条清单候选</small></summary>
+      <div class="candidate-body">
+      {% if scope %}<p class="muted">{{ source_labels.get(item.parse_run_id, '规格') }} · 物理第 {{ item.physical_page }} 页</p>{% endif %}
+      <div class="action-row"><a href="{{ evidence_path(item.evidence_id, draft.draft_id if scope else '') }}">打开规格原页</a>
+      {% for row in matched %}<a href="/workbench/drafts/{{ draft.draft_id }}/pairs/{{ item.candidate_id }}/{{ row.item_id }}">核对这组候选<span class="muted"> · {% if scope %}{{ sheet_labels.get(row.declaration_import_id, row.sheet_or_section or 'CSV') }} · {% endif %}第 {{ row.row_id }} 行</span></a>{% endfor %}</div>
+      <details><summary>查看要求字段</summary>{{ raw_fields(item, 'requirement') }}</details>
       {% if item.annotation_context %}
       <details data-annotation-association="{{ item.annotation_context.association_state }}">
         <summary>注释关联待核对 · 物理第 {{ item.annotation_context.physical_page }} 页</summary>
@@ -43,42 +54,92 @@
         {% endfor %}
       </details>
       {% endif %}
-      {% set matched = matches.get(item.candidate_id, []) %}
       {% if matched %}
+      <details><summary>选择候选与条件化计算</summary>
       <label>对应清单行
         <select name="declaration_{{ item.candidate_id }}">
           <option value="">选择已核对的行</option>
           {% for row in matched %}
-            <option value="{{ row.item_id }}">{{ row.sheet_or_section or 'CSV' }} 第 {{ row.row_id }} 行 · {{ row.expr or '空值' }} {{ row.unit or '' }}</option>
+            {% set pairing = row.candidate_edge.field_pairing %}
+            <option value="{{ row.item_id }}"{% if selected and selected.declaration_id == row.item_id %} selected{% endif %}>{{ sheet_labels.get(row.declaration_import_id, row.sheet_or_section or 'CSV') }} 第 {{ row.row_id }} 行 · {{ pairing.field }} · {% if pairing.declaration %}{{ pairing.declaration.value.normalized }} {{ pairing.declaration.unit or '' }}{% else %}字段未观测{% endif %}</option>
           {% endfor %}
         </select>
       </label>
-      <label class="check"><input type="checkbox" name="confirmed_id" value="{{ item.candidate_id }}"> 自述两条记录对应</label>
-      <label class="check"><input type="checkbox" name="fields_checked_{{ item.candidate_id }}"> 自述已核对双方字段与计数口径</label>
-      <label class="check"><input type="checkbox" name="same_version_{{ item.candidate_id }}"> 已确认适用版本相同</label>
+      <details>
+        <summary>候选依据与未决维度</summary>
+        {% for row in matched %}
+        {% set edge = row.candidate_edge %}
+        <p>第 {{ row.row_id }} 行 · {{ edge.topology }} · {{ edge.binding_state }}
+          <a href="/workbench/drafts/{{ draft.draft_id }}/pairs/{{ item.candidate_id }}/{{ row.item_id }}">核对这组候选</a></p>
+        <ul>
+          {% for dimension, state in edge.dimensions.items() %}
+          <li>{{ dimension }} · {{ state }}</li>
+          {% endfor %}
+          {% for blocker in edge.comparison_blockers + edge.applicability_blockers %}
+          <li>{{ blocker }}</li>
+          {% endfor %}
+        </ul>
+        {% endfor %}
+      </details>
+      {% if scope %}
+      <label class="check"><input type="checkbox" name="confirmed_id" value="{{ item.candidate_id }}"{% if selected %} checked{% endif %}> 纳入所选配对</label>
+      {% else %}
+      <label class="check"><input type="checkbox" name="confirmed_id" value="{{ item.candidate_id }}"{% if selected %} checked{% endif %}> 自述两条记录对应</label>
+      <label class="check"><input type="checkbox" name="fields_checked_{{ item.candidate_id }}"{% if selected and selected.fields_checked %} checked{% endif %}> 自述已核对双方字段与计数口径</label>
+      <label class="check"><input type="checkbox" name="same_version_{{ item.candidate_id }}"{% if selected and selected.same_version %} checked{% endif %}> 已确认适用版本相同</label>
+      {% endif %}
+      </details>
       {% else %}
       <p class="muted">未找到符合类别、配置和范围条件的清单候选。</p>
       {% endif %}
-    </section>
+      </div>
+    </details>
     {% endfor %}
+    <div class="pagination"><span data-list-count aria-live="polite"></span><button type="button" class="secondary" data-list-prev>上一页</button><button type="button" class="secondary" data-list-next>下一页</button></div>
   </div>
-  <aside>
-    <section class="panel">
-      <h2>清单原始行</h2>
+  <aside class="draft-actions">
+    <details class="raw-details"><summary>{{ '清单原始行' if scope else '清单原始行与列映射' }}</summary>
+      {% if not scope %}<details>
+        <summary>导入列映射</summary>
+        <dl class="facts">
+          {% for field, column in draft.column_mapping.items() %}
+          <div><dt>{{ field }}</dt><dd>{{ column }}</dd></div>
+          {% endfor %}
+        </dl>
+      </details>{% endif %}
       {% if not draft.declarations %}<p class="muted">清单没有可供核对的记录。</p>{% endif %}
       {% for row in draft.declarations if not diagnostics %}
       <details class="candidate">
-        <summary>{{ row.sheet_or_section or 'CSV' }} 第 {{ row.row_id }} 行 · {{ row.equipment_class or '未知设备' }} {{ row.config_variant or '' }}</summary>
+        <summary>{{ sheet_labels.get(row.declaration_import_id, row.sheet_or_section or 'CSV') }} 第 {{ row.row_id }} 行 · {{ row.equipment_class or '未知设备' }} {{ row.config_variant or '' }}</summary>
         {{ raw_fields(row, 'declaration') }}
       </details>
       {% endfor %}
-    </section>
-    <section class="panel workflow-panel">
+    </details>
+    <section class="next-step">
       <h2>生成核验结果</h2>
-      <p class="help">勾选会记录自述。当前缺少可审计的字段级核验记录，候选仍须复核。</p>
+      <p class="help">展开左侧事项并选择“核对这组候选”，可以直接核对证据并重算。也可以先生成待复核结果。</p>
+      {% if scope %}<input type="hidden" name="use_human_reviews" value="on"><input type="hidden" name="conditional_preview" value="on">
+      {% else %}<details><summary>计算设置</summary>
+      <label class="check"><input type="checkbox" name="mapping_reviewed"> 自述已查看并核对列映射</label>
+      <label class="check"><input type="checkbox" name="conditional_preview"> 同时计算所选记录在假设成立时的数值结果</label>
+      <label class="check"><input type="checkbox" name="use_human_reviews"> 对所选候选使用已有人工核验记录</label>
+      </details>{% endif %}
       <label>审查人 <input name="reviewer" maxlength="80" required></label>
       <button type="submit">运行核验</button>
     </section>
   </aside>
 </form>
+{% if scope %}
+<section class="panel task-history" id="task-history" aria-labelledby="history-heading">
+  <h2 id="history-heading">任务历史</h2>
+  <ol class="history">
+    {% for entry in task_runs %}
+    <li data-run-status="{{ entry.status }}">
+      <div class="action-row"><a href="/workbench/runs/{{ entry.run_id }}">查看核验</a><a href="/workbench/runs/{{ entry.run_id }}/report">查看报告</a><time>{{ entry.created_at }}</time></div>
+      {% if entry.status == 'stale' %}<p>历史结果已失效 · <code>{{ entry.stale_reason }}</code></p>{% else %}<p>核验结果</p>{% endif %}
+    </li>
+    {% else %}<li>暂无核验运行。</li>{% endfor %}
+  </ol>
+</section>
+{% endif %}
 {% endblock %}

@@ -25,7 +25,8 @@ def test_workbench_runs_confirmation_and_review_against_registered_sources(tmp_p
     settings = Settings(tmp_path / "registry.sqlite", enable_uploads=True)
     with TestClient(create_app(settings), base_url="http://127.0.0.1") as client:
         home = client.get("/")
-        token = _csrf(home)
+        assert 'href="/workbench/import"' in home.text
+        token = _csrf(client.get("/workbench/import"))
         assert "script-src 'self'" in home.headers["content-security-policy"]
         assert "SameSite=strict" in home.headers["set-cookie"]
         assert "HttpOnly" in home.headers["set-cookie"]
@@ -50,6 +51,7 @@ def test_workbench_runs_confirmation_and_review_against_registered_sources(tmp_p
         draft = client.post("/workbench/drafts", data={"csrf": token, **_ids(list_upload)})
         assert draft.status_code == 200
         assert "4 个要求候选" in draft.text
+        assert "导入列映射" in draft.text
         form = BeautifulSoup(draft.text, "html.parser")
         candidate = form.select_one("input[name=confirmed_id]")["value"]
         row_select = f"declaration_{candidate}"
@@ -58,6 +60,8 @@ def test_workbench_runs_confirmation_and_review_against_registered_sources(tmp_p
         payload = {
             "csrf": token,
             "reviewer": "合成审查员",
+            "mapping_reviewed": "on",
+            "conditional_preview": "on",
             "confirmed_id": candidate,
             row_select: declaration,
             f"fields_checked_{candidate}": "on",
@@ -66,6 +70,7 @@ def test_workbench_runs_confirmation_and_review_against_registered_sources(tmp_p
         assert partial.status_code == 200, partial.text
         partial_record = client.get(str(partial.url) + "/export.json").json()
         assert partial_record["findings"][0]["disposition"] != "issue"
+        payload["selection_run"] = partial_record["run_id"]
         payload[f"same_version_{candidate}"] = "on"
         run = client.post(verify, data=payload)
         assert run.status_code == 200, run.text
@@ -78,6 +83,9 @@ def test_workbench_runs_confirmation_and_review_against_registered_sources(tmp_p
         export = client.get(str(run.url) + "/export.json").json()
         first = export["findings"][0]
         assert first["disposition"] == "review_required"
+        assert first["conditional_calculation"]["status"] == "violated"
+        assert export["column_mapping_review"] == "user_reported"
+        assert "条件化计算（待人工复核）" in run.text
         assert first["evaluation"]["reason_code"] == "FIELD_SUPPORT_UNKNOWN"
         assert export["binding_state"] == "declared"
         assert export["field_verification_state"] == "not_verified"
@@ -95,14 +103,17 @@ def test_workbench_runs_confirmation_and_review_against_registered_sources(tmp_p
         assert "&lt;script&gt;not an executable review note&lt;/script&gt;" in review.text
         csv_export = client.get(str(run.url) + "/export.csv")
         assert csv_export.status_code == 200 and "needs_more_evidence" in csv_export.text
-        assert client.get("/workbench/search", params={"q": "equipment_class"}).status_code == 200
+        search = client.get(
+            "/workbench/search", params={"q": "equipment_class", "physical_page": ""}
+        )
+        assert search.status_code == 200
+        assert pdf.name in search.text
 
 
 def test_workbench_rejects_unsafe_requests_and_serves_pinned_resources(tmp_path):
     settings = Settings(tmp_path / "registry.sqlite", max_pdf_bytes=8, enable_uploads=True)
     with TestClient(create_app(settings), base_url="http://127.0.0.1") as client:
-        home = client.get("/")
-        token = _csrf(home)
+        token = _csrf(client.get("/workbench/import"))
         assert client.post("/workbench/drafts", data={"csrf": "wrong"}).status_code == 403
         assert (
             client.post(

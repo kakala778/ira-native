@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% from 'components.html' import csrf_field %}
+{% from 'input_forms.html' import pdf_upload, sheet_upload %}
+{% block title %}多资料核验{% endblock %}
+{% block content %}
+<div class="import-view">
+  <div class="page-heading"><h1>新建多资料核验任务</h1><a href="/workbench/import">单份规格与清单</a></div>
+  {% if uploads %}
+  <section class="import-step" aria-labelledby="register-heading">
+    <h2 id="register-heading">登记资料</h2>
+    <details class="upload-option"><summary>上传规格 PDF 和解析文件</summary>{{ pdf_upload(csrf, task_mode='multi') }}</details>
+    <details class="upload-option"><summary>上传设备清单</summary><p class="help">多工作表文件每次登记一张表。在导入设置中填写工作表名称。</p>{{ sheet_upload(csrf, columns, task_mode='multi') }}</details>
+  </section>
+  {% endif %}
+  <form action="/workbench/tasks/new" method="post" class="import-step">
+    {{ csrf_field(csrf) }}
+    <h2>选择资料与范围</h2>
+    <p class="help">勾选需要核验的资料，并为每项填写范围。可以填写单页或单行，也可以填写连续区间，例如 2-4。</p>
+    <fieldset class="task-inputs">
+      <legend>规格及补充资料</legend>
+      {% for id, label in choices.specifications %}
+      <div class="task-input" data-task-input>
+        <label class="check"><input type="checkbox" name="source" value="{{ id }}" data-task-select> {{ label }}{% if id == added %} · 刚登记{% endif %}</label>
+        <div class="form-row">
+          <label>资料角色 <select name="source_role_{{ id }}"><option value="">请选择</option>{% for key, title in roles.items() %}<option value="{{ key }}">{{ title }}</option>{% endfor %}</select></label>
+          <label>物理页范围 <input name="source_range_{{ id }}" maxlength="20" pattern="[0-9]+(-[0-9]+)?" placeholder="例如 1-3"></label>
+        </div>
+      </div>
+      {% else %}<p>请先登记至少一份规格及对应解析。</p>{% endfor %}
+    </fieldset>
+    <fieldset class="task-inputs">
+      <legend>设备清单工作表</legend>
+      {% for id, label in choices.spreadsheets %}
+      <div class="task-input" data-task-input>
+        <label class="check"><input type="checkbox" name="declaration" value="{{ id }}" data-task-select> {{ label }}{% if id == added %} · 刚登记{% endif %}</label>
+        <label>原始行范围 <input name="declaration_range_{{ id }}" maxlength="20" pattern="[0-9]+(-[0-9]+)?" placeholder="例如 2-10"></label>
+      </div>
+      {% else %}<p>请先登记至少一张清单工作表。</p>{% endfor %}
+    </fieldset>
+    <div class="form-row">
+      <label>任务名称 <input name="task_name" maxlength="100" placeholder="留空时使用资料名称"></label>
+      <label>适用日期 <input name="as_of" type="date"></label>
+    </div>
+    <button type="submit" {% if not choices.specifications or not choices.spreadsheets %}disabled{% endif %}>创建多资料草案</button>
+  </form>
+</div>
+{% endblock %}

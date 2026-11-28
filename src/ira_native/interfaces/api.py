@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from secrets import token_bytes
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Request
@@ -14,6 +15,7 @@ from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from ira_native import __version__
 from ira_native.application.service import EvidenceService
 from ira_native.application.workflow import VerificationWorkflow
 from ira_native.domain.models import (
@@ -124,11 +126,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with EvidenceService(settings if settings is not None else Settings.from_env()) as service:
             application.state.evidence_service = service
             application.state.workflow = VerificationWorkflow(service)
-            yield
+            application.state.human_form_key = token_bytes(32)
+            try:
+                yield
+            finally:
+                await application.state.workflow.close_background_agents()
 
     app = FastAPI(
         title="IRA Native",
-        version="0.1.0",
+        version=__version__,
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,

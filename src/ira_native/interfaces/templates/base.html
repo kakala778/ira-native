@@ -6,20 +6,36 @@
   <link rel="icon" href="data:,">
   <title>{% block title %}证据核验{% endblock %} · IRA Native</title>
   <link rel="stylesheet" href="/workbench/static/workbench.css">
+  <script type="module" src="/workbench/static/workbench.mjs"></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="topbar-inner">
-      <a class="wordmark" href="/">IRA Native</a>
-      <nav aria-label="主导航">
-        <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %}>资料与核验</a>
-        <a href="/workbench/search" {% if request.url.path == '/workbench/search' %}aria-current="page"{% endif %}>证据检索</a>
+  <a class="skip-link" href="#main">跳到工作区</a>
+  {% set path = request.url.path %}
+  <div class="app-shell">
+    <aside class="app-nav" aria-label="工作台导航">
+      <div class="nav-header">
+      <a class="brand" href="/" aria-label="IRA Native 首页"><span class="brand-mark" aria-hidden="true">I</span><span>IRA Native</span></a>
+      <button type="button" class="nav-toggle secondary" aria-label="折叠导航" aria-expanded="true" aria-controls="main-nav" data-nav-toggle>☰</button>
+      </div>
+      <nav id="main-nav" aria-label="主导航">
+        <a href="/" {% if path == '/' or '/drafts/' in path or '/runs/' in path %}aria-current="page"{% endif %}><span aria-hidden="true">▤</span><span>任务工作台</span></a>
+        <a href="/workbench/import" {% if path in ('/workbench/import', '/workbench/tasks/new') %}aria-current="page"{% endif %}><span aria-hidden="true">＋</span><span>新建任务</span></a>
+        <a href="/workbench/search" {% if path == '/workbench/search' %}aria-current="page"{% endif %}><span aria-hidden="true">⌕</span><span>证据检索</span></a>
       </nav>
-    </div>
-  </header>
-  <main class="container" id="main">
-    {% block content %}{% endblock %}
-  </main>
+    </aside>
+    <main class="workspace" id="main" tabindex="-1">
+      <header class="workspace-bar">
+        <a href="/">任务工作台</a>
+        {% if task_label %}<span aria-hidden="true">/</span><strong>{{ task_label }}</strong>{% endif %}
+        {% if path == '/' %}<small class="muted" aria-label="安装版本">v{{ app_version }}</small>{% endif %}
+      </header>
+      {% block task_navigation %}{% endblock %}
+      <div class="workspace-scroll" tabindex="0" role="region" aria-label="工作区内容">
+        <div class="container">{% block content %}{% endblock %}</div>
+      </div>
+    </main>
+    {% block evidence_panel %}{% endblock %}
+  </div>
   {% block scripts %}{% endblock %}
 </body>
 </html>

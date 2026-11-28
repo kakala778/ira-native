@@ -1,66 +1,45 @@
-# IRA Native｜铁路通信工程证据驱动辅助核验 Agent
+# IRA Native
 
-**当前阶段** · TASK-001 证据基础已集成至本地 main 并完成最终复验。GitHub 未推送。TASK-002～004 仍为合成数据原型，正式 TASK-002 尚未启动。字段级人工核验和正式业务验收尚未完成。
+**Evidence-Grounded Industrial Verification Workbench**
+证据驱动的工业资料与技术参数核验工作台。
 
-公开仓库为 [kakala778/ira-native](https://github.com/kakala778/ira-native)。产品范围与约定见 [PRD](docs/PRD.md)、[CONTRACTS](docs/CONTRACTS.md)、[ARCHITECTURE](docs/ARCHITECTURE.md) 和 [TASK-001](tasks/TASK-001.md)。
+IRA Native runs locally. It links technical requirements and equipment declarations to source evidence, calculates conditional results with deterministic rules, and records human review before formal disposition.
 
-## 已实现与已验证的范围
+## 工作台
 
-| 阶段 | 当前状态 |
-|---|---|
-| TASK-001 证据基础 | 已集成至本地 main：PDF 与解析 JSON 字节登记、原文哈希、幂等及解析运行、原生指针、中文与术语检索、原件物理页回查、CLI 和本机 API。 |
-| TASK-002 至 TASK-004 原型 | main 中包含合成数据原型，贯通 GPON 清单导入、候选配对和字段来源、确定性规则、受控本机 Agent、本地工作台、复核与导出；仅用于工程验证。正式 TASK-002 尚未启动。 |
-| TASK-005A 内部实验 | 现有 MinerU 产物的导入、证据定位及检索抽样部分通过；来源配对与业务语义仍有未决项。 |
-| R1/R1.1 整改 | 软件收紧来源信任门，区分正文与注释的命中定位，增加零候选诊断，传递注释归属风险，分开来源精度与实际浏览器渲染。 |
-| R1/R1.1 独立复验 | **PARTIAL PASS**；证据基础可作为阶段冻结候选。正式业务验收、字段级人工核验和真实样本诊断仍未完成。 |
+登记技术规格 PDF、对应解析 JSON 和 CSV/XLSX 清单，选择资料、页和清单行。按设备或参数检索并回查 PDF 原文。核验支持明确属性的规范化、受支持的单位换算、计数口径及适用条件。多资料任务保留冲突和版本关系。逐项人工核验后可重算、查看失效历史，并导出报告。
 
-## 历史测试结果与本轮集成复验
+![合成演示的核验工作台](docs/assets/verification-workbench.png)
 
-| 历史执行范围 | 历史结果 |
-|---|---|
-| Codex 本地全量，包含本机模型测试 | **151 passed** |
-| TRAE 独立全量，未启用本机模型 | **146 passed / 5 skipped** |
-| R1.1 定向复验 | **21 passed** |
+## 从证据到结果
 
-以上表格为历史复验记录，不是本轮结果。R1/R1.1 独立验收结论为 PARTIAL PASS。
+1. **Evidence-first**。证据保留来源、解析运行和物理定位，核验时可回查原页。
+2. **Deterministic verification**。先核对主体、属性、单位、口径和适用条件，再计算条件化结果。依据不足时保留待复核。
+3. **Human-in-the-loop**。字段、来源、实体和适用性独立核验。人工记录与输入快照绑定，源资料或记录变化后旧结果留在历史中。
+4. **Bounded AI assistance**。单资料任务可选本机模型补查，默认关闭。模型建议不能代替人工确认，模型不可用时仍可继续确定性核验。
 
-### 本轮本地 main 最终复验（2026-11-25）
+[系统架构](docs/architecture-current.md) · [使用指南](docs/user-guide.md) · [版本记录](CHANGELOG.md)
 
-| 检查 | 实际结果 |
-|---|---|
-| 全量 pytest | 146 passed、5 skipped；5 项可选本机模型测试因本机 Ollama API 不可用而跳过 |
-| R1.1 定向测试 | 21 passed |
-| 静态检查 | Ruff 检查通过；42 个文件格式通过；两个 Node 语法检查通过；uv lock 检查通过 |
-| PDF.js 真实浏览器 | Canvas、高亮、翻页、PNG 回退、双失败路径通过；浏览器错误和站外请求均为 0 |
-| CLI/Web | Doctor=ok；合成导入 4 条 Evidence，检索 1 条并回查物理页 1；本机 Web 页面和搜索路由均返回 HTTP 200 |
+## 快速启动
 
-以上为本地 main 的最终复验结果；origin/main 保持原 SHA，本轮未推送。
-
-仓库的公开测试数据为合成样本，含 26 条逻辑金标、合成 PDF、手写的模拟 MinerU JSON，以及 CSV/XLSX 测试输入。Edge 的实际验证覆盖 Canvas、高亮换算、翻页、PNG 回退和双重失败。既有的本机模型测试使用合成资料。
-
-真实资料的定位、附带字段归属和业务语义仍需人工核对。历史零候选结果没有经过真实原件的独立复验，不能据此断言原文不存在相关要求。
-
-## 能力边界和遗留
-
-- 当前字段状态为 `not_verified`。字段级人工核验记录、可信身份、审计凭据及相应失效契约尚未实现。录入人自述和 PDF/JSON 配对状态独立，勾选不提升信任。
-- 正式业务验收仍缺真实资料的字段对照、逐单元格及续表语义核验、多文档结果、MinerU 重新解析的可复现性和 TASK-005 的综合对照评测。
-- P2 遗留包括旧草案已有注释上下文但缺少风险码时的解释缺口、历史配对显式为空值的读取表现、带注释原页链接的页级回查体验、零候选草案的清单上下文取舍。旧草案边缘仍停在待复核。历史浏览器只应按实际复验范围解读，现阶段覆盖 Edge 及 Map 功能缺失模拟。
-- P3 遗留为自述勾选保存在适用性快照内，逐条 Finding 的展示和导出不完整。未脱敏的本机模型日志留在本机并排除出交付和 Git。
-
-## 在候选代码工作树复现
-
-以下命令从项目根目录运行本地 main 集成版本。
+需要 Python 3.12 和 uv。已验证环境为 Windows。源码工作树：
 
 ```powershell
 uv sync --locked --python 3.12
-uv run --locked pytest -q -rs --tb=short
-uv run --locked python tests/fixtures/synthetic/generate_gpon_workflow.py data/synthetic-gpon-review
+$env:IRA_DB = Join-Path $PWD 'data/ira.sqlite'
 $env:IRA_ENABLE_UPLOADS = '1'
+uv run --locked ira doctor
 uv run --locked ira serve --port 8000
 ```
 
-工作台只监听本机。默认测试跳过五项真实本机模型用例，普通核验路径无需模型。完整复验命令、补丁链与独立验收记录随阶段交接归档。
+打开 `http://127.0.0.1:8000`。已安装 wheel 的启动方式及合成演示生成命令见[使用指南](docs/user-guide.md)。
 
-## 数据授权
+## 验证与边界
 
-授权内部资料按每批用途与范围管理。公开仓库、CI、Issue、公开演示和外部服务不接收原始铁路资料、解析原文、敏感衍生物、数据库、未脱敏日志或密钥。公开仓库仅纳入可审查代码、文档和无实际工程内容的合成数据。
+Windows 上已验证 rc2 的单资料连续复核、取消配对保护、重启恢复和报告一致性。截图与演示均为虚构资料，解析 JSON 为模拟格式。软件依赖已有解析产物，复杂表格和未确认的版本、工况或范围可能需要人工复核。真实工程验收、自动合规认证、跨块模型编译及非 Windows 环境兼容尚未验证。
+
+功能基线 `d5eeb33` 的工程回归通过 287 项，跳过 5 项需本机模型的可选测试。上述验证使用公开合成输入。
+
+## 许可
+
+项目原创代码采用 [MIT 许可证](LICENSE)。PDF.js 及其附带资源的许可与声明见 [NOTICE](src/ira_native/interfaces/static/pdfjs/NOTICE.md)。

@@ -17,7 +17,7 @@ from ira_native.errors import IraError
 FIELDS = set(
     (
         "item_id equipment_class manufacturer_model configuration_variant scope site_group "
-        "quantity unit count_basis config property expr condition source_revision"
+        "quantity unit count_basis config property expr condition source_revision requirement_slot technical_value technical_unit part_number"
     ).split()
 )
 REQUIRED = {"equipment_class", "configuration_variant", "scope"}

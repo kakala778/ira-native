@@ -2,6 +2,44 @@
 <input type="hidden" name="csrf" value="{{ token }}">
 {% endmacro %}
 
+{% macro evidence_path(evidence_id, scope_draft='') -%}
+/workbench{% if scope_draft %}/drafts/{{ scope_draft }}{% endif %}/evidence/{{ evidence_id }}
+{%- endmacro %}
+
+{% macro task_tabs(draft_id, run_id='', active='draft', finding_id='', multi_source=false) %}
+<nav class="task-tabs" aria-label="当前任务">
+  <a href="/workbench/drafts/{{ draft_id }}" {% if active == 'draft' %}aria-current="page"{% endif %}>候选与核验</a>
+  {% if run_id %}
+  <a href="/workbench/runs/{{ run_id }}?view=list" {% if active == 'results' %}aria-current="page"{% endif %}>核验结果</a>
+  {% if not multi_source %}
+  <a href="/workbench/runs/{{ run_id }}?panel=agent{% if finding_id %}&amp;finding_id={{ finding_id }}{% endif %}" {% if active == 'agent' %}aria-current="page"{% endif %}>Agent 补查</a>
+  {% endif %}
+  <a href="/workbench/runs/{{ run_id }}/report" {% if active == 'report' %}aria-current="page"{% endif %}>核验报告</a>
+  {% endif %}
+  {% if multi_source %}<a href="/workbench/drafts/{{ draft_id }}#task-history">任务历史</a>{% endif %}
+</nav>
+{% endmacro %}
+
+{% macro evidence_toggle(open=false) %}
+<button type="button" class="secondary" data-evidence-toggle aria-controls="evidence-inspector" aria-expanded="{{ 'true' if open else 'false' }}">查看原文</button>
+{% endmacro %}
+
+{% macro comparison(left, right) %}
+{% if not right %}<p class="muted">当前没有可比较的清单行。</p>{% endif %}
+{% set display = {'device_quantity':'设备数量', 'interface_config':'接口配置', 'maximum_power':'最大功耗', 'per_device':'按每台设备', 'per_site':'按站点', 'per_site_group':'按站点组', 'per_contract_scope':'按合同范围', 'total':'合计', 'unknown':'待核对'} %}
+<table class="comparison">
+  <thead><tr><th scope="col">字段</th><th scope="col">技术规格</th><th scope="col">设备清单</th></tr></thead>
+  <tbody>
+  {% for field, label in [('equipment_class', '设备类别'), ('model', '厂家型号'), ('config_variant', '配置变体'), ('part_number', '部件'), ('scope', '工程范围'), ('condition', '适用条件'), ('property', '属性'), ('expr', '表达式'), ('unit', '单位'), ('count_basis', '计数口径'), ('source_revision', '来源版本')] %}
+  {% set lhs = left.get(field) %}{% set rhs = right.get(field) if right else none %}
+  {% if (lhs or rhs) or field not in ('part_number', 'condition', 'source_revision') %}
+  <tr><th scope="row">{{ label }}</th><td>{{ display.get(lhs, lhs) or '—' }}</td><td>{{ display.get(rhs, rhs) or '—' }}</td></tr>
+  {% endif %}
+  {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+
 {% macro fact(label, value) %}
 <div><dt>{{ label }}</dt><dd>{{ value if value is not none and value != '' else '—' }}</dd></div>
 {% endmacro %}
@@ -16,12 +54,19 @@
 {% endif %}
 {% endmacro %}
 
-{% macro original(item, location, problem) %}
+{% macro original(item, location, problem, source_label='', scope_draft='') %}
+{% if source_label %}<p class="pdf-source"><strong>{{ source_label }}</strong>{% if item and scope_draft %} · 原件物理第 {{ item.physical_page }} 页{% elif location %} · 原件物理第 {{ location.physical_page }} 页{% endif %}</p>{% endif %}
 {% if item %}{{ search_match(item) }}{% endif %}
 {% if problem %}
   <div class="notice" role="status"><strong>原页无法打开</strong><code>{{ problem.code }}</code><p>{{ problem.detail }}</p></div>
 {% endif %}
-{% if location %}
+{% if item and scope_draft %}
+  <div class="pdf-stage" tabindex="0" role="region" aria-label="原始 PDF 整页预览">
+    <img class="page-fallback" data-scoped-page="{{ item.physical_page }}" loading="lazy"
+         src="{{ evidence_path(item.evidence_id, scope_draft) }}/pages/{{ item.physical_page }}/image"
+         alt="原始 PDF 物理第 {{ item.physical_page }} 页">
+  </div>
+{% elif location %}
   <div class="pdf-viewer"
        data-pdf="/api/v1/assets/{{ location.asset_id }}/pdf"
        data-page-image="/api/v1/assets/{{ location.asset_id }}/pages/"
@@ -34,9 +79,13 @@
       <button type="button" class="secondary" data-prev disabled aria-label="上一物理页">上一页</button>
       <span class="page-indicator"><span data-current>{{ location.physical_page }}</span> / <span data-total>{{ location.page_count }}</span></span>
       <button type="button" class="secondary" data-next disabled aria-label="下一物理页">下一页</button>
+      <label class="pdf-zoom">缩放 <select data-zoom disabled>
+        <option value="fit">适应宽度</option><option value="1">100%</option>
+        <option value="1.5">150%</option><option value="2">200%</option>
+      </select></label>
       <a class="utility" href="/api/v1/assets/{{ location.asset_id }}/pdf">下载 PDF</a>
     </div>
-    <div class="pdf-stage" data-stage aria-label="原始 PDF 预览">
+    <div class="pdf-stage" data-stage tabindex="0" role="region" aria-label="原始 PDF 预览">
       <noscript><img class="page-fallback" src="/api/v1/assets/{{ location.asset_id }}/pages/{{ location.physical_page }}/image" alt="PDF 物理第 {{ location.physical_page }} 页"><p>整页 PNG 预览，未显示块级高亮。</p></noscript>
     </div>
     <p class="pdf-status" data-pdf-status role="status">正在载入 PDF 物理第 {{ location.physical_page }} 页</p>
@@ -86,7 +135,10 @@
   <ul class="field-evidence">
     {% for field in item.field_evidence %}
     <li><strong>{{ field.field_name }}</strong>
-      {% if field.column %} · {{ field.column }}{% endif %}
+      {% if field.column or field.raw_heading %} · {{ field.column or field.raw_heading }}{% endif %}
+      {% if field.column_index %} · 第 {{ field.column_index }} 列{% endif %}
+      {% if field.row_in_block %} · 表内第 {{ field.row_in_block }} 数据行{% endif %}
+      {% if field.native_pointer %} · <code>{{ field.native_pointer }}</code>{% endif %}
       {% if field.cell %} · {{ field.cell }}{% endif %}
       {% if field.source_pointer %} · <code>{{ field.source_pointer }}</code>{% endif %}
       {% if field.support_state %} · {{ field.support_state }}{% endif %}

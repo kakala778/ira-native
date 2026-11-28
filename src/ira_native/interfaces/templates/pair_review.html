@@ -1,0 +1,107 @@
+{% extends 'base.html' %}
+{% from 'components.html' import csrf_field, original, fact, task_tabs, evidence_toggle %}
+{% block title %}配对人工核验{% endblock %}
+{% block task_navigation %}{{ task_tabs(draft_id, return_run_id, 'draft', return_finding_id, context.inputs.task_scope) }}{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><h1>配对人工核验</h1><p>操作者标识记录在本机工作台。</p></div>
+  <div class="action-row">{{ evidence_toggle(false) }}
+    {% if return_run_id %}<a href="/workbench/runs/{{ return_run_id }}?finding_id={{ return_finding_id }}">返回核验事项</a>
+    {% else %}<a href="/workbench/drafts/{{ draft_id }}">返回草案</a>{% endif %}
+  </div>
+</div>
+{% if saved %}<p class="saved-message" role="status" tabindex="-1" data-restore-focus>本项核验记录已保存。可继续核对其他条件，或按当前记录重算。</p>{% endif %}
+<div class="columns human-review">
+  <section class="panel document-panel">
+
+    {% if item and item.native_context.get('table_recovery') %}
+      <p role="status">此表由恢复流程派生。请在原 PDF 中逐项检查表头、行列、范围和内容。</p>
+    {% endif %}
+    <h2>清单原始行</h2>
+    <dl class="facts">
+      {{ fact('工作表', context.inputs.declaration.sheet or 'CSV') }}
+      {{ fact('原始行', context.inputs.declaration.row) }}
+      {{ fact('来源修订', context.inputs.declaration.source_revision) }}
+    </dl>
+    <details><summary>查看清单原值</summary><pre>{{ context.inputs.declaration.original_cells | tojson(indent=2) }}</pre></details>
+  </section>
+  <section class="panel">
+    <h2>记录人工核验</h2>
+    <details><summary>查看尚待核对的条件</summary>
+    {% if context.gates.blockers %}
+      <ul>{% for code in context.gates.blockers %}<li><code>{{ code }}</code></li>{% endfor %}</ul>
+    {% else %}<p>当前输入的人工核验前置条件已记录。</p>{% endif %}
+    </details>
+    {% for category, title in [('fields', '逐字段核验'), ('source','核对 PDF、解析与清单来源'), ('binding','核对实体绑定'), ('applicability','核对适用性')] %}
+    <details class="candidate"><summary>{{ title }}</summary>
+    <form action="{{ route }}/record{% if return_query %}?{{ return_query }}{% endif %}" method="post">
+      {{ csrf_field(csrf) }}
+      <input type="hidden" name="token" value="{{ context.review_token }}">
+      <input type="hidden" name="signature" value="{{ signature }}">
+      <input type="hidden" name="category" value="{{ category }}">
+      {% if category == 'fields' %}
+      <p>逐项选择本次核对的字段。</p>
+      {% for target, field in context.fields.items() %}
+      <details>
+        <summary>{{ '要求' if field.object_side == 'requirement' else '声明' }} · {{ field.field_name }} · {{ field.normalized if field.normalized is not none else '未陈述' }}</summary>
+        <label class="check"><input type="checkbox" name="target" value="{{ target }}"> 纳入本次核验</label>
+        {% if not field.reviewable %}<p>当前输入缺少可用字段依据。</p>{% endif %}
+        {% if target in context.gates.unverified_fields %}<p>待核验</p>{% else %}<p>已记字段核验</p>{% endif %}
+        <pre>{{ field.raw | tojson(indent=2) }}</pre>
+        {% for position in field.provenance %}
+        <p>{{ position.raw_heading or position.column or position.field_name }}
+        {% if position.column_index %} · 第 {{ position.column_index }} 列{% endif %}
+        {% if position.row_in_block %} · 表内第 {{ position.row_in_block }} 行{% endif %}
+        {% if position.native_pointer or position.source_pointer %} · <code>{{ position.native_pointer or position.source_pointer }}</code>{% endif %}</p>
+        {% endfor %}
+      </details>
+      {% endfor %}
+      {% elif category == 'source' %}
+      <p>打开原文并核对清单原值，说明本次核查的范围。</p>
+      {% elif category == 'binding' %}
+      <p>核对设备类别、型号、配置变体和需求槽位。</p>
+      {% else %}
+      <p>核对版本、工程范围、站点覆盖、工况和适用条件。</p>
+      {% endif %}
+      <label>结论 <select name="decision" required>
+        <option value="">选择结论</option><option value="confirmed">确认</option>
+        <option value="rejected">否决</option><option value="insufficient">证据不足</option>
+        {% if category == 'applicability' %}<option value="not_applicable">不适用</option>{% endif %}
+      </select></label>
+      <label>操作者标识 <input name="reviewer" maxlength="120" required></label>
+      <label>核验理由 <textarea name="note" maxlength="2000" required></textarea></label>
+      <label class="check"><input type="checkbox" name="attest" required> 我已检查本次记录涉及的原始依据</label>
+      <button type="submit">保存本项核验</button>
+    </form>
+    </details>
+    {% endfor %}
+    {% if can_recalculate %}
+    <form action="{{ route }}/recalculate" method="post">
+      {{ csrf_field(csrf) }}
+      <input type="hidden" name="selection_run" value="{{ selection_run }}">
+      <label>操作者标识 <input name="reviewer" maxlength="120" required></label>
+      <button type="submit">按当前记录重算</button>
+    </form>
+    {% else %}
+    <p>这组配对未纳入当前核验。<a href="/workbench/drafts/{{ draft_id }}">返回草案</a>，选择对应清单行、勾选该配对，再运行核验。</p>
+    {% endif %}
+    <details class="raw-details"><summary>核验历史</summary>
+    <ol class="history">
+      {% for event in context.history | reverse %}
+      <li><strong>{{ event.reviewer }} · {{ event.category }} · {{ event.decision }}</strong>
+        <p>{{ event.note }}</p><time>{{ event.time }}</time>
+        <p>{{ '当前记录' if event.review_id in context.active_review_ids else '历史记录' }}</p>
+        <details><summary>核验快照与记录范围</summary><pre>{{ event | tojson(indent=2) }}</pre></details>
+      </li>
+      {% else %}<li>还没有本配对的字段或信任门核验记录。</li>{% endfor %}
+    </ol></details>
+  </section>
+</div>
+{% endblock %}
+{% block evidence_panel %}
+<aside id="evidence-inspector" class="evidence-inspector" data-evidence-panel aria-label="原文证据" hidden>
+  <div class="inspector-heading"><h2>原文证据</h2><button type="button" class="secondary" data-evidence-close aria-label="关闭证据栏">×</button></div>
+  <div class="inspector-content">{{ original(item, location, problem, source_label, scope_draft) }}</div>
+</aside>
+{% endblock %}
+{% block scripts %}{% if not scope_draft %}<script type="module" src="/workbench/static/pdf-viewer.mjs"></script>{% endif %}{% endblock %}

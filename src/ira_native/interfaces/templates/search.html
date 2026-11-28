@@ -7,7 +7,10 @@
   <form action="/workbench/search" method="get">
     <div class="form-row search-row">
       <label>检索词 <input type="search" name="q" value="{{ q }}" maxlength="256" placeholder="例如 GPON" required></label>
-      <label>PDF 资产 ID（可选） <input name="asset_id" value="{{ asset_id }}" class="identifier" pattern="[0-9a-f]{64}" spellcheck="false"></label>
+      <label>技术规格 <select name="asset_id"><option value="">全部规格</option>
+        {% for id, name in specifications %}<option value="{{ id }}" {% if id == asset_id %}selected{% endif %}>{{ name }}</option>{% endfor %}
+        {% if asset_id and asset_id not in specifications | map(attribute=0) | list %}<option value="{{ asset_id }}" selected>当前指定资料</option>{% endif %}
+      </select></label>
       <label>物理页（可选） <input type="number" name="physical_page" value="{{ physical_page or '' }}" min="1"></label>
     </div>
     <button type="submit">检索</button>

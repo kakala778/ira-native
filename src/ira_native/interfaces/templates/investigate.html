@@ -1,17 +1,47 @@
 {% extends 'base.html' %}
-{% from 'components.html' import fact %}
+{% from 'components.html' import fact, task_tabs %}
 {% block title %}证据补查{% endblock %}
+{% block task_navigation %}{{ task_tabs(run.draft_id, run_id, 'agent', target.finding_id if target else '') }}{% endblock %}
 {% block content %}
-<div class="page-heading"><div><h1>证据补查</h1><p>当前记录的补查状态</p></div>
-<a class="button secondary" href="/workbench/runs/{{ run_id }}">返回审查</a></div>
-<section class="panel">
+<div class="page-heading"><div><h1>证据补查</h1></div>
+<a class="button secondary" href="/workbench/runs/{{ run_id }}{% if target %}?finding_id={{ target.finding_id }}{% else %}?view=list{% endif %}">返回审查</a></div>
+<section class="agent-compose">
   {% set labels = {'no_gap': '当前没有待补查的缺口', 'model_disabled': '模型未启用', 'not_configured': '模型未配置', 'proposals_available': '找到候选证据'} %}
-  <p role="status">{{ labels.get(report.status, report.status) }}</p>
+  {% set messages = {'running': '本地 Agent 正在补查', 'model_unavailable': '本机模型服务不可用，可返回核验继续人工复核',
+      'agent_timeout': '补查达到时限，可继续人工复核', 'agent_budget_exhausted': '补查达到预算',
+      'no_progress': '补查没有取得可提交的证据', 'scope_denied': '宿主拦截了超出授权的操作',
+      'model_error': '本机模型未完成补查，可继续人工复核', 'session_ended': '上次工作台会话已结束',
+      'agent_cancelled': '补查已取消', 'cancelled': '已取消'} %}
+  {% if report.goal %}<div class="agent-prompt"><h2>补查目标</h2><p>{{ report.goal }}</p></div>{% endif %}
+  <p class="agent-result-status" role="status" data-task-state="{{ report.task_state }}" data-agent-status="{{ report.status }}">
+    {{ messages.get(report.status, labels.get(report.status, report.status)) }}
+  </p>
+  {% if report.task_state == "running" %}<p><a href="{{ request.url.path }}">刷新任务状态</a></p>{% endif %}
+  <dl class="facts">
+    {{ fact('任务状态', {'running':'运行中','blocked':'未完成','completed':'已结束','failed':'失败','abandoned':'会话已结束','cancelled':'已取消'}.get(report.task_state, report.task_state)) }}
+    {{ fact('停止原因', messages.get(report.stop_reason, labels.get(report.stop_reason, report.stop_reason))) }}
+    {{ fact('耗时（秒）', report.duration_seconds) }}
+  </dl>
+  {% if report.task_state != 'running' %}
+  <p><a class="button secondary" href="/workbench/runs/{{ run_id }}?panel=agent{% if target %}&amp;finding_id={{ target.finding_id }}{% endif %}">返回补查入口</a></p>
+  {% endif %}
+  <details class="raw-details"><summary>模型与授权详情</summary>
+  <dl class="facts">{{ fact('模型', report.model_name) }}{{ fact('状态代码', report.status) }}{{ fact('停止代码', report.stop_reason) }}</dl>
+  {% if report.scope %}
+    <pre>{{ {'scope': report.scope, 'budget': report.budget | default({}), 'remaining': report.remaining | default({})} | tojson(indent=2) }}</pre>
+  {% endif %}
+  {% if report.task_id %}
+  <a href="/workbench/runs/{{ run_id }}/agent-tasks/{{ report.task_id }}?export=true">导出 JSON 轨迹</a>
+  {% endif %}
+  </details>
+  {% if report.unresolved_gaps %}<h2>未解决事项</h2><ul>
+    {% for gap in report.unresolved_gaps %}<li>{{ gap }}</li>{% endfor %}
+  </ul>{% endif %}
   {% if report.evidence_ids %}
   <h2>候选证据</h2>
   <ul class="search-results">
     {% for evidence_id in report.evidence_ids %}
-    <li><a href="/workbench/evidence/{{ evidence_id }}">打开原始证据块 <code>{{ evidence_id }}</code></a></li>
+    <li><a href="/workbench/evidence/{{ evidence_id }}?run_id={{ run_id }}&amp;task_id={{ report.task_id }}">打开原始证据块 {{ loop.index }}</a></li>
     {% endfor %}
   </ul>
   {% endif %}
@@ -23,8 +53,17 @@
     {{ fact('规则结果', report.reverification.requirement_evaluation) }}
   </dl>
   {% endif %}
-  {% if report.events %}
-  <details class="raw-details"><summary>查看补查事件</summary><pre>{{ report.events | tojson(indent=2) }}</pre></details>
+  {% if report.attempts %}
+  <details class="raw-details"><summary>查看工具尝试和实际执行</summary><pre>{{ report.attempts | tojson(indent=2) }}</pre></details>
+  {% endif %}
+  {% if report.model_requests %}
+  <details class="raw-details"><summary>查看模型请求</summary><pre>{{ report.model_requests | tojson(indent=2) }}</pre></details>
   {% endif %}
 </section>
+{% endblock %}
+
+{% block scripts %}
+{% if report.task_state == 'running' %}
+<script type="module" src="/workbench/static/agent-status.mjs"></script>
+{% endif %}
 {% endblock %}
